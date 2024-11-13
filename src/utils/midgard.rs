@@ -44,7 +44,7 @@ impl MidGard {
     pub async fn fetch_actions_with_nextpage(
         next_page_token: &str,
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
-        let client = Client::builder().timeout(Duration::from_secs(5)).build()?;
+        let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = if next_page_token.is_empty() {
             "https://vanaheimex.com/actions?type=swap&asset=notrade".to_string()
         } else {
@@ -59,7 +59,7 @@ impl MidGard {
     pub async fn fetch_actions_with_prevpage(
         prev_page_token: &str,
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
-        let client = Client::builder().timeout(Duration::from_secs(5)).build()?;
+        let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = format!(
             "https://vanaheimex.com/actions?type=swap&asset=notrade&prevPageToken={}",
             prev_page_token
@@ -70,7 +70,7 @@ impl MidGard {
     pub async fn fetch_actions_with_timestamp(
         timestamp: &str,
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
-        let client = Client::builder().timeout(Duration::from_secs(5)).build()?;
+        let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = format!(
             "https://vanaheimex.com/actions?type=swap&asset=notrade&fromTimestamp={}",
             timestamp
