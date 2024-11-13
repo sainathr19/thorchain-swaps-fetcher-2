@@ -1,6 +1,6 @@
 use crate::db::MySQL;
 use crate::utils::midgard::MidGard;
-use crate::utils::transaction_handler::{TransactionError, TransactionHandler}; // Use the custom error type
+use crate::utils::transaction_handler::{TransactionError, TransactionHandler};
 use crate::utils::{read_next_page_token_from_file, write_next_page_token_to_file};
 use chrono::Utc;
 

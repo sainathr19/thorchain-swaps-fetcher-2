@@ -1,4 +1,4 @@
-pub mod coingecko;
+// pub mod coingecko;
 pub mod cron;
 pub mod midgard;
 pub mod transaction_handler;
@@ -14,10 +14,6 @@ use std::path::Path;
 pub fn convert_to_standard_unit(amount: f64, decimals: u32) -> f64 {
     let divisor = 10u64.pow(decimals);
     amount as f64 / divisor as f64
-}
-
-pub fn calculate_transaction_amount(amount: f64, price: f64) -> f64 {
-    amount * price
 }
 pub fn convert_nano_to_sec(nano_str: &str) -> String {
     let nanoseconds: i64 = nano_str.parse().expect("Invalid date string");
@@ -49,12 +45,6 @@ pub fn format_epoch_timestamp(epoch_nanos: &str) -> Result<(String, String), Box
     Ok((formatted_date, formatted_time))
 }
 
-pub fn coin_name_from_pool(pool_name: &str) -> Option<String> {
-    let re = Regex::new(r"[./~\-_|:;,+*^$!?]").unwrap();
-    let parts: Vec<&str> = re.split(pool_name).collect();
-    parts.get(1).map(|s| s.to_string())
-}
-
 pub fn asset_name_from_pool(pool_name: &str) -> Option<String> {
     let re = Regex::new(r"[./~\-_|:;,+*^$!?]").unwrap();
     let mut parts = re.split(pool_name);
@@ -75,7 +65,7 @@ pub fn read_next_page_token_from_file() -> io::Result<String> {
     if Path::new(TOKEN_FILE_PATH).exists() {
         fs::read_to_string(TOKEN_FILE_PATH).map(|token| token.trim().to_string())
     } else {
-        Ok(String::from("170981189000000012"))
+        Ok(String::from(""))
     }
 }
 

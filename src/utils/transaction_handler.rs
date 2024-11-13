@@ -1,9 +1,9 @@
-use super::{calculate_transaction_amount, coingecko::COINGECKO_INSTANCE};
+// use super::{calculate_transaction_amount, coingecko::COINGECKO_INSTANCE};
 use crate::{
     db::MySQL,
     models::actions_model::{SwapTransaction, SwapTransactionFromatted, TransactionData},
     utils::{
-        asset_name_from_pool, coin_name_from_pool, convert_nano_to_sec, convert_to_standard_unit,
+        asset_name_from_pool, convert_nano_to_sec, convert_to_standard_unit,
         format_epoch_timestamp, parse_f64,
     },
 };
@@ -15,7 +15,7 @@ use std::fmt;
 pub enum TransactionError {
     MissingInCoin,
     MissingAssetName,
-    CoinNotFound(String),
+    // CoinNotFound(String),
     PriceFetchError(String),
     MissingTxId,
     MissingInData,
@@ -32,7 +32,7 @@ impl fmt::Display for TransactionError {
         match self {
             TransactionError::MissingInCoin => write!(f, "Missing in_coin"),
             TransactionError::MissingAssetName => write!(f, "Error parsing asset name"),
-            TransactionError::CoinNotFound(coin_name) => write!(f, "Coin not found: {}", coin_name),
+            // TransactionError::CoinNotFound(coin_name) => write!(f, "Coin not found: {}", coin_name),
             TransactionError::PriceFetchError(coin_name) => {
                 write!(f, "Price fetch failed for: {}", coin_name)
             }
@@ -66,119 +66,71 @@ impl TransactionHandler {
     pub async fn parse_data(
         &self,
         info: &TransactionData,
-        swap_date: &str,
-    ) -> Result<(String, f64, f64, String), TransactionError> {
-        let in_coin = info.coins.get(0).ok_or(TransactionError::MissingInCoin)?;
-        let coin_name =
-            coin_name_from_pool(&in_coin.asset).ok_or(TransactionError::MissingAssetName)?;
+    ) -> Result<(String, f64, String), TransactionError> {
+        let coin = info.coins.get(0).ok_or(TransactionError::MissingInCoin)?;
 
-        let in_amount = parse_f64(&in_coin.amount).expect("Floating point parse error");
+        let token_amount = parse_f64(&coin.amount).expect("Floating point parse error");
+        let standard_amount = convert_to_standard_unit(token_amount, 8);
 
-        let in_amount_usd = self
-            .convert_amount_to_usd(&coin_name, swap_date, in_amount)
-            .await?;
+        let asset_name =
+            asset_name_from_pool(&coin.asset).ok_or(TransactionError::MissingAssetName)?;
+        let address = info.address.clone();
 
-        let in_asset =
-            asset_name_from_pool(&in_coin.asset).ok_or(TransactionError::MissingAssetName)?;
-        let in_address = info.address.clone();
-
-        Ok((in_asset, in_amount, in_amount_usd, in_address))
-    }
-    pub async fn convert_amount_to_usd(
-        &self,
-        asset_name: &str,
-        date: &str,
-        amount: f64,
-    ) -> Result<f64, TransactionError> {
-        let mut coingecko = COINGECKO_INSTANCE.write().await;
-
-        let coin_id = match coingecko.get_coin_id(&asset_name) {
-            Some(coin_id) => coin_id,
-            None => {
-                let coin_id = coingecko.search_coin(asset_name).await.map_err(|_| {
-                    println!("Error searching for coin ID for asset: {}", asset_name);
-                    TransactionError::CoinNotFound(asset_name.to_string())
-                })?;
-                let coin_id  =coin_id.ok_or_else(|| {
-                    println!("Coin ID not found after search for asset: {}", asset_name);
-                    TransactionError::CoinNotFound(asset_name.to_string())
-                })?;
-                coingecko.add_coin_id(&asset_name, &coin_id);
-                coin_id
-            }
-        };
-        let price_on_date = coingecko
-            .fetch_usd_price(coin_id.as_str(), date)
-            .await
-            .map_err(|_| {
-                println!(
-                    "Error fetching price for coin ID: {} on date: {}",
-                    coin_id, date
-                );
-                TransactionError::PriceFetchError(coin_id.clone())
-            })?;
-        let amount = convert_to_standard_unit(amount, 8);
-        let t_amount = calculate_transaction_amount(amount, price_on_date);
-
-        Ok((t_amount * 100.0).round() / 100.0)
+        Ok((asset_name, standard_amount, address))
     }
 
     pub async fn parse_transaction(
         swap: &SwapTransaction,
     ) -> Result<SwapTransactionFromatted, TransactionError> {
-        // Parse swap_date & swap_time
         let (swap_date, swap_time) = format_epoch_timestamp(&swap.date).expect("Formatting error");
         let epoc_timestamp = parse_f64(convert_nano_to_sec(&swap.date).as_str()).unwrap() as i64;
-
+    
         println!("Current Progress Date : {}", &swap_date);
-
-        // Parse tx_id from in_data
+    
         let tx_id = swap
             .in_data
             .get(0)
             .and_then(|data| data.txID.clone())
             .ok_or(TransactionError::MissingTxId)?;
-
+    
         let handler = TransactionHandler;
-
-        // Parse In Data
         let in_data = swap.in_data.get(0).ok_or(TransactionError::MissingInData)?;
-        let (in_asset, in_amount, in_amount_usd, in_address) =
-            handler.parse_data(in_data, &swap_date).await?;
-
+        let (in_asset, in_amount, in_address) = handler.parse_data(in_data).await?;
+    
         let mut out_data = swap.out_data.clone();
         out_data.reverse();
-
-        // Parse Out Data
+    
         let out_data_1 = out_data.get(0).ok_or(TransactionError::MissingOutData)?;
-        let (out_asset_1, out_amount_1, out_amount_1_usd, out_address_1) =
-            handler.parse_data(out_data_1, &swap_date).await?;
-
-        let (out_asset_2, out_amount_2, out_amount_2_usd, out_address_2) = if let Some(val) =
-            out_data.get(1)
-        {
-            let (asset, amount, amount_usd, address) = handler.parse_data(val, &swap_date).await?;
-            (Some(asset), Some(amount), Some(amount_usd), Some(address))
-        } else {
-            (None, None, None, None)
-        };
-
+        let (asset_1, amount_1, address_1) = handler.parse_data(out_data_1).await?;
+    
+        let (out_asset_1, out_amount_1, out_address_1, out_asset_2, out_amount_2, out_address_2) = 
+            if let Some(out_data_2) = out_data.get(1) {
+                let (asset_2, amount_2, address_2) = handler.parse_data(out_data_2).await?;
+                
+                if asset_1 == "THOR.RUNE" {
+                    (asset_2, amount_2, address_2, Some(asset_1), Some(amount_1), Some(address_1))
+                } else if asset_2 == "THOR.RUNE" {
+                    (asset_1, amount_1, address_1, Some(asset_2), Some(amount_2), Some(address_2))
+                } else {
+                    (asset_1, amount_1, address_1, Some(asset_2), Some(amount_2), Some(address_2))
+                }
+            } else {
+                (asset_1, amount_1, address_1, None, None, None)
+            };
+    
         Ok(SwapTransactionFromatted {
             timestamp: epoc_timestamp,
             date: swap_date,
             time: swap_time,
             in_asset,
             in_amount,
-            in_amount_usd,
             out_asset_1,
             out_amount_1,
-            out_amount_1_usd,
             in_address,
             out_address_1,
             tx_id,
             out_asset_2,
             out_amount_2,
-            out_amount_2_usd,
             out_address_2,
         })
     }
