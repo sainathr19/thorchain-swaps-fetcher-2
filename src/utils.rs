@@ -59,22 +59,20 @@ pub fn format_date_for_sql(date_str: &str) -> Result<String, ParseError> {
     Ok(date.format("%Y-%m-%d").to_string())
 }
 
-const TOKEN_FILE_PATH: &str = "next_page_token.txt";
-
-pub fn read_next_page_token_from_file() -> io::Result<String> {
-    if Path::new(TOKEN_FILE_PATH).exists() {
-        fs::read_to_string(TOKEN_FILE_PATH).map(|token| token.trim().to_string())
+pub fn read_next_page_token_from_file(file_path : &str) -> io::Result<String> {
+    if Path::new(file_path).exists() {
+        fs::read_to_string(file_path).map(|token| token.trim().to_string())
     } else {
         Ok(String::from(""))
     }
 }
 
-pub fn write_next_page_token_to_file(token: &str) -> io::Result<()> {
+pub fn write_next_page_token_to_file(token: &str, file_path : &str) -> io::Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
         .truncate(true)
-        .open(TOKEN_FILE_PATH)?;
+        .open(file_path)?;
     file.write_all(token.as_bytes())?;
     Ok(())
 }
