@@ -8,8 +8,8 @@ pub async fn fetch_historical_data() -> Result<(), TransactionError> {
     let mysql = MySQL::init().await.map_err(|e| {
         TransactionError::DatabaseError(format!("Error connecting to MySQL: {:?}", e))
     })?;
-
-    let mut next_page_token = read_next_page_token_from_file().unwrap_or_default();
+    const TOKEN_FILE_PATH: &str = "next_page_token.txt";
+    let mut next_page_token = read_next_page_token_from_file(TOKEN_FILE_PATH).unwrap_or_default();
 
     loop {
         let resp = match MidGard::fetch_actions_with_nextpage(next_page_token.as_str()).await {
@@ -32,7 +32,7 @@ pub async fn fetch_historical_data() -> Result<(), TransactionError> {
         match process_response {
             Ok(_) => {
                 next_page_token = resp.meta.nextPageToken.clone();
-                if let Err(e) = write_next_page_token_to_file(&next_page_token) {
+                if let Err(e) = write_next_page_token_to_file(&next_page_token,TOKEN_FILE_PATH) {
                     return Err(TransactionError::FileError(format!(
                         "Error writing next page token to file: {:?}",
                         e
@@ -117,5 +117,90 @@ pub async fn fetch_latest_data(mysql: &MySQL) -> Result<(), TransactionError> {
     }
 
     println!("Latest Data Updated at : {}", latest_timestamp_str);
+    Ok(())
+}
+
+
+pub async fn fetch_from_start(mysql: &MySQL) -> Result<(), TransactionError> {
+    let mysql_clone = mysql.clone();
+    let start_timestamp = "1609459200";
+    const TOKEN_FILE_PATH: &str = "prev_page_token.txt";
+    
+    let stored_token = read_next_page_token_from_file(TOKEN_FILE_PATH).unwrap_or_default();
+    
+    let mut resp = if stored_token.is_empty() {
+        match MidGard::fetch_actions_with_timestamp(&start_timestamp).await {
+            Ok(response) => {
+                let actions = response.actions.clone();
+                match TransactionHandler::process_and_insert_transaction(&mysql_clone, &actions).await {
+                    Ok(_) => {
+                        if let Err(e) = write_next_page_token_to_file(&response.meta.prevPageToken, TOKEN_FILE_PATH) {
+                            return Err(TransactionError::FileError(format!(
+                                "Error writing next page token to file: {:?}",
+                                e
+                            )));
+                        }
+                        println!("Updated Prev page token: {}", &response.meta.prevPageToken);
+                        response
+                    }
+                    Err(err) => {
+                        return Err(TransactionError::ProcessingError(format!(
+                            "Error processing transaction: {:?}",
+                            err
+                        )));
+                    }
+                }
+            }
+            Err(err) => {
+                return Err(TransactionError::ApiError(format!(
+                    "Error fetching actions with timestamp: {:?}",
+                    err
+                )));
+            }
+        }
+    } else {
+        match MidGard::fetch_actions_with_prevpage(&stored_token).await {
+            Ok(response) => response,
+            Err(err) => {
+                return Err(TransactionError::ApiError(format!(
+                    "Error fetching previous page actions: {:?}",
+                    err
+                )));
+            }
+        }
+    };
+
+    while !resp.actions.is_empty() {
+        let prev_page_token = resp.meta.prevPageToken.clone();
+        resp = match MidGard::fetch_actions_with_prevpage(&prev_page_token).await {
+            Ok(response) => response,
+            Err(err) => {
+                return Err(TransactionError::ApiError(format!(
+                    "Error fetching previous page actions: {:?}",
+                    err
+                )));
+            }
+        };
+
+        let process_response =
+            TransactionHandler::process_and_insert_transaction(&mysql_clone, &resp.actions).await;
+        match process_response {
+            Ok(_) => {
+                if let Err(e) = write_next_page_token_to_file(&prev_page_token, TOKEN_FILE_PATH) {
+                    return Err(TransactionError::FileError(format!(
+                        "Error writing next page token to file: {:?}",
+                        e
+                    )));
+                }
+            }
+            Err(err) => {
+                return Err(TransactionError::ProcessingError(format!(
+                    "Error processing transaction: {:?}",
+                    err
+                )));
+            }
+        };
+    }
+
     Ok(())
 }
