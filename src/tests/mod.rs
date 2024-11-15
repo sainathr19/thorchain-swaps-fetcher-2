@@ -48,20 +48,20 @@ mod tests {
         assert!(format_date_for_sql("invalid-date").is_err());
     }
 
-    const TOKEN_FILE_PATH: &str = "next_page_token.txt";
+    const TOKEN_FILE_PATH: &str = "next_page_token_test.txt";
 
     #[test]
     fn test_read_next_page_token_from_file() {
-        let token = read_next_page_token_from_file().unwrap_or("default".to_string());
+        let token = read_next_page_token_from_file(TOKEN_FILE_PATH).unwrap_or("default".to_string());
         assert!(token.is_empty() || token == "170981189000000012" || token == "default");
     }
 
     #[test]
     fn test_write_next_page_token_to_file() {
         let test_token = "test_token";
-        write_next_page_token_to_file(test_token).unwrap();
+        write_next_page_token_to_file(test_token,TOKEN_FILE_PATH).unwrap();
 
-        let read_token = read_next_page_token_from_file().unwrap();
+        let read_token = read_next_page_token_from_file(TOKEN_FILE_PATH).unwrap();
         assert_eq!(read_token, test_token);
         fs::remove_file(TOKEN_FILE_PATH).unwrap();
     }
