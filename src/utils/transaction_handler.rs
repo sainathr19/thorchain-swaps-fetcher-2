@@ -148,22 +148,12 @@ impl TransactionHandler {
         pg: &PostgreSQL,
         actions: &Vec<SwapTransaction>,
     ) -> Result<(), TransactionError> {
-        
-        for swap in actions {
-            let transaction_info = self.parse_transaction(&swap).await;
-
-            let transaction_info = match transaction_info {
-                Ok(val) => val,
-                Err(err) => {
-                    println!("Error parsing transaction: {:?}", err);
-                    continue;
-                }
-            };
-            if let Err(err) = pg.insert_new_record(transaction_info.clone()).await {
+        let processed_transactions = self.process_transactions(actions).await.unwrap();
+        for swap in processed_transactions{
+            if let Err(err) = pg.insert_new_record(swap.clone()).await {
                 println!("Error during insertion: {:?}", err);
             } 
         }
-
         Ok(())
     }
 
@@ -172,6 +162,7 @@ impl TransactionHandler {
         actions: &Vec<SwapTransaction>,
     ) -> Result<Vec<SwapTransactionFromatted>, TransactionError> {
         let mut result : Vec<SwapTransactionFromatted> = Vec::new();
+        let mut pending_count = 0;
         for swap in actions {
             let transaction_info = self.parse_transaction(&swap).await;
             let transaction_info = match transaction_info {
@@ -182,16 +173,17 @@ impl TransactionHandler {
                 }
             };
             if transaction_info.status!="success"{
-                println!("Found Pending Transaction : {:?}",&transaction_info.tx_id);
-                TransactionHandler::track_pending_transaction(transaction_info.tx_id).await;
+                self.track_pending_transaction(transaction_info.tx_id).await;
+                pending_count+=1;
             }else{
                 result.push(transaction_info);
             }
         }
+        println!("Pending Transactions in batch : {}",&pending_count);
         Ok(result)
     }
     
-    async fn track_pending_transaction(transaction_id: String) {
+    pub async fn track_pending_transaction(&self,transaction_id: String) {
         let mut pending_txn_ids = PENDING_TRANSACTION_IDS.lock().await;
         pending_txn_ids.insert(transaction_id);
     }
