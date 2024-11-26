@@ -10,7 +10,7 @@ impl MidGard {
         client: &Client,
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
         let mut attempts = 0;
-        let max_attempts = 3;
+        let max_attempts = 10;
 
         loop {
             attempts += 1;
@@ -46,10 +46,10 @@ impl MidGard {
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
         let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = if next_page_token.is_empty() {
-            "https://vanaheimex.com/actions?type=swap&asset=notrade".to_string()
+            "https://vanaheimex.com/actions?type=swap&asset=notrade,BTC.BTC".to_string()
         } else {
             format!(
-                "https://vanaheimex.com/actions?type=swap&asset=notrade&nextPageToken={}",
+                "https://vanaheimex.com/actions?type=swap&asset=notrade,BTC.BTC&nextPageToken={}",
                 next_page_token
             )
         };
@@ -61,7 +61,7 @@ impl MidGard {
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
         let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = format!(
-            "https://vanaheimex.com/actions?type=swap&asset=notrade&prevPageToken={}",
+            "https://vanaheimex.com/actions?type=swap&asset=notrade,BTC.BTC&prevPageToken={}",
             prev_page_token
         );
         Self::fetch_with_retry(&url, &client).await
@@ -72,7 +72,7 @@ impl MidGard {
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
         let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = format!(
-            "https://vanaheimex.com/actions?type=swap&asset=notrade&fromTimestamp={}",
+            "https://vanaheimex.com/actions?type=swap&asset=notrade,BTC.BTC&fromTimestamp={}",
             timestamp
         );
         Self::fetch_with_retry(&url, &client).await

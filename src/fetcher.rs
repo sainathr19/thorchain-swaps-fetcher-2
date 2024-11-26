@@ -1,4 +1,5 @@
 use crate::db::MySQL;
+use crate::models::actions_model::SwapTransactionFromatted;
 use crate::utils::midgard::MidGard;
 use crate::utils::transaction_handler::{TransactionError, TransactionHandler};
 use crate::utils::{read_next_page_token_from_file, write_next_page_token_to_file};
@@ -123,7 +124,7 @@ pub async fn fetch_latest_data(mysql: &MySQL) -> Result<(), TransactionError> {
 
 pub async fn fetch_from_start(mysql: &MySQL) -> Result<(), TransactionError> {
     let mysql_clone = mysql.clone();
-    let start_timestamp = "1609459200";
+    let start_timestamp = "1700357476";
     const TOKEN_FILE_PATH: &str = "prev_page_token.txt";
     
     let stored_token = read_next_page_token_from_file(TOKEN_FILE_PATH).unwrap_or_default();
@@ -170,6 +171,8 @@ pub async fn fetch_from_start(mysql: &MySQL) -> Result<(), TransactionError> {
         }
     };
 
+    let mut transaction_batch : Vec<SwapTransactionFromatted> = Vec::new();
+    let mut batch_count = 0;
     while !resp.actions.is_empty() {
         let prev_page_token = resp.meta.prevPageToken.clone();
         resp = match MidGard::fetch_actions_with_prevpage(&prev_page_token).await {
@@ -181,11 +184,12 @@ pub async fn fetch_from_start(mysql: &MySQL) -> Result<(), TransactionError> {
                 )));
             }
         };
-
-        let process_response =
-            TransactionHandler::process_and_insert_transaction(&mysql_clone, &resp.actions).await;
-        match process_response {
-            Ok(_) => {
+        let processed_transactions = TransactionHandler::process_transactions(&resp.actions).await;
+        match processed_transactions{
+            Ok(val)=>{
+                transaction_batch.extend(val);
+                batch_count+=1;
+                println!("Processed Batch : {}",&batch_count);
                 if let Err(e) = write_next_page_token_to_file(&prev_page_token, TOKEN_FILE_PATH) {
                     return Err(TransactionError::FileError(format!(
                         "Error writing next page token to file: {:?}",
@@ -193,13 +197,30 @@ pub async fn fetch_from_start(mysql: &MySQL) -> Result<(), TransactionError> {
                     )));
                 }
             }
-            Err(err) => {
+            Err(err)=>{
+                println!("Error parsing Transactions : {:?}",err);
                 return Err(TransactionError::ProcessingError(format!(
                     "Error processing transaction: {:?}",
                     err
                 )));
             }
-        };
+        }
+
+        if batch_count>=20{
+            let insertion_response = mysql.insert_bulk(transaction_batch.clone()).await;
+            match insertion_response {
+                Ok(_)=>{
+                    println!("Batch insertion Successfull of : {}",&transaction_batch.len());
+                }
+                Err(err)=>{
+                    println!("Error inserting Batch : {:?}",err);
+                }
+                
+            }
+            batch_count=0;
+            transaction_batch.clear();
+            println!("Batch Cleared. Size After Clear: {}", &transaction_batch.len());
+        }
     }
 
     Ok(())

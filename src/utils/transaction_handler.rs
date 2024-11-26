@@ -83,10 +83,7 @@ impl TransactionHandler {
         swap: &SwapTransaction,
     ) -> Result<SwapTransactionFromatted, TransactionError> {
         let (swap_date, swap_time) = format_epoch_timestamp(&swap.date).expect("Formatting error");
-        let epoc_timestamp = parse_f64(convert_nano_to_sec(&swap.date).as_str()).unwrap() as i64;
-    
-        println!("Current Progress Date : {}", &swap_date);
-    
+        let epoc_timestamp = parse_f64(convert_nano_to_sec(&swap.date).as_str()).unwrap() as i64;    
         let tx_id = swap
             .in_data
             .get(0)
@@ -156,11 +153,35 @@ impl TransactionHandler {
             };
             if let Err(err) = mysql.insert_new_record(transaction_info.clone()).await {
                 println!("Error during insertion: {:?}", err);
-            } else {
-                println!("Insertion Successful for Id : {}", &transaction_info.tx_id);
-            }
+            } 
+            // else {
+            //     println!("Insertion Successful for Id : {}", &transaction_info.tx_id);
+            // }
         }
 
         Ok(())
+    }
+
+    pub async fn process_transactions(
+        actions: &Vec<SwapTransaction>,
+    ) -> Result<Vec<SwapTransactionFromatted>, TransactionError> {
+        let mut result : Vec<SwapTransactionFromatted> = Vec::new();
+        for swap in actions {
+            if swap.status != "success" {
+                println!("Transaction Pending");
+                continue;
+            }
+            let transaction_info = TransactionHandler::parse_transaction(&swap).await;
+
+            let transaction_info = match transaction_info {
+                Ok(val) => val,
+                Err(err) => {
+                    println!("Error parsing transaction: {:?}", err);
+                    continue;
+                }
+            };
+            result.push(transaction_info);
+        }
+        Ok(result)
     }
 }

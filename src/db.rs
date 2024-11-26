@@ -5,7 +5,7 @@ use std::env;
 use crate::{
     models::actions_model::SwapTransactionFromatted,
     routes::swap_history::OrderType,
-    utils::format_date_for_sql,
+    utils::{format_date_for_sql, sanitize_string},
 };
 
 #[derive(Clone)]
@@ -61,6 +61,52 @@ impl MySQL {
         Ok(())
     }
 
+    pub async fn insert_bulk(
+        &self,
+        records: Vec<SwapTransactionFromatted>,
+    ) -> Result<(), SqlxError> {
+        if records.is_empty() {
+            return Ok(());
+        }
+    
+        // Remove 'VALUES' from the initial query string since QueryBuilder will add it
+        let query = "INSERT INTO swap_history_2 (
+            timestamp, date, time, tx_id, 
+            in_asset, in_amount, in_address, 
+            out_asset_1, out_amount_1, out_address_1, 
+            out_asset_2, out_amount_2, out_address_2
+        )";
+    
+        let mut query_builder = sqlx::QueryBuilder::new(query);
+        
+        // QueryBuilder will automatically add the VALUES keyword
+        query_builder.push_values(records, |mut b, record| {
+            let date = format_date_for_sql(&record.date).unwrap_or_default();
+            
+            b.push_bind(record.timestamp)
+             .push_bind(date)
+             .push_bind(record.time)
+             .push_bind(record.tx_id)
+             .push_bind(sanitize_string(&record.in_asset))
+             .push_bind(record.in_amount)
+             .push_bind(sanitize_string(&record.in_address))
+             .push_bind(sanitize_string(&record.out_asset_1))
+             .push_bind(record.out_amount_1)
+             .push_bind(sanitize_string(&record.out_address_1))
+             .push_bind(record.out_asset_2.as_deref().map(sanitize_string))
+             .push_bind(record.out_amount_2)
+             .push_bind(record.out_address_2.as_deref().map(sanitize_string));
+        });
+    
+        match query_builder.build().execute(&self.pool).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                println!("Error executing query: {:?}", e);
+                println!("Query: {}", query_builder.sql());
+                Err(e)
+            }
+        }
+    }
     pub async fn fetch_latest_timestamp(&self) -> Result<Option<i64>, SqlxError> {
         let result = sqlx::query_scalar!(
             r#"

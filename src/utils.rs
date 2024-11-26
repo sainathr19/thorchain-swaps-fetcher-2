@@ -76,3 +76,10 @@ pub fn write_next_page_token_to_file(token: &str, file_path : &str) -> io::Resul
     file.write_all(token.as_bytes())?;
     Ok(())
 }
+
+pub fn sanitize_string(input: &str) -> String {
+    input
+        .chars()
+        .filter(|c| c.is_ascii() || c.is_alphanumeric())
+        .collect::<String>()
+}
