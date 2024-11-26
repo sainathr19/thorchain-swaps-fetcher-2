@@ -1,6 +1,6 @@
-use dotenv::dotenv;
-use sqlx::{mysql::MySqlPool, Error as SqlxError};
+use sqlx::{postgres::PgPool, Error as SqlxError};
 use std::env;
+use dotenv::dotenv;
 
 use crate::{
     models::actions_model::SwapTransactionFromatted,
@@ -9,28 +9,25 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct MySQL {
-    pub pool: MySqlPool,
+pub struct PostgreSQL {
+    pub pool: PgPool,
 }
 
-impl MySQL {
+impl PostgreSQL {
     pub async fn init() -> Result<Self, SqlxError> {
         dotenv().ok();
         let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-        let pool = MySqlPool::connect(&database_url).await?;
-        println!("Connected to MySQL");
-        Ok(MySQL { pool })
+        let pool = PgPool::connect(&database_url).await?;
+        println!("Connected to PostgreSQL");
+        Ok(PostgreSQL { pool })
     }
 
     pub async fn insert_new_record(
         &self,
         record: SwapTransactionFromatted,
     ) -> Result<(), SqlxError> {
-        // Parsing and formatting the data
-        let date = format_date_for_sql(&record.date).unwrap();
-        let time = record.time.clone();
-
-        // Executing the insert query
+        let date = format_date_for_sql(&record.date).unwrap();  
+        
         sqlx::query!(
             r#"
             INSERT INTO swap_history_2 (
@@ -39,11 +36,16 @@ impl MySQL {
                 out_asset_1, out_amount_1, out_address_1, 
                 out_asset_2, out_amount_2, out_address_2
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (
+                $1, $2, $3, $4, 
+                $5, $6, $7, 
+                $8, $9, $10, 
+                $11, $12, $13
+            )
             "#,
-            record.timestamp,
+            record.timestamp as i32,
             date,
-            time,
+            record.time,
             record.tx_id,
             record.in_asset,
             record.in_amount,
@@ -57,7 +59,7 @@ impl MySQL {
         )
         .execute(&self.pool)
         .await?;
-
+    
         Ok(())
     }
 
@@ -68,34 +70,30 @@ impl MySQL {
         if records.is_empty() {
             return Ok(());
         }
-    
-        // Remove 'VALUES' from the initial query string since QueryBuilder will add it
-        let query = "INSERT INTO swap_history_2 (
+            let query = "INSERT INTO swap_history_2 (
             timestamp, date, time, tx_id, 
             in_asset, in_amount, in_address, 
             out_asset_1, out_amount_1, out_address_1, 
             out_asset_2, out_amount_2, out_address_2
-        )";
+        ) VALUES ";
     
         let mut query_builder = sqlx::QueryBuilder::new(query);
-        
-        // QueryBuilder will automatically add the VALUES keyword
         query_builder.push_values(records, |mut b, record| {
-            let date = format_date_for_sql(&record.date).unwrap_or_default();
+        let date = format_date_for_sql(&record.date).unwrap_or_default();
             
-            b.push_bind(record.timestamp)
-             .push_bind(date)
-             .push_bind(record.time)
-             .push_bind(record.tx_id)
-             .push_bind(sanitize_string(&record.in_asset))
-             .push_bind(record.in_amount)
-             .push_bind(sanitize_string(&record.in_address))
-             .push_bind(sanitize_string(&record.out_asset_1))
-             .push_bind(record.out_amount_1)
-             .push_bind(sanitize_string(&record.out_address_1))
-             .push_bind(record.out_asset_2.as_deref().map(sanitize_string))
-             .push_bind(record.out_amount_2)
-             .push_bind(record.out_address_2.as_deref().map(sanitize_string));
+        b.push_bind(record.timestamp)
+         .push_bind(date)
+         .push_bind(record.time)
+         .push_bind(record.tx_id)
+         .push_bind(sanitize_string(&record.in_asset))
+         .push_bind(record.in_amount)
+         .push_bind(sanitize_string(&record.in_address))
+         .push_bind(sanitize_string(&record.out_asset_1))
+         .push_bind(record.out_amount_1)
+         .push_bind(sanitize_string(&record.out_address_1))
+         .push_bind(record.out_asset_2.as_deref().map(sanitize_string))
+         .push_bind(record.out_amount_2)
+         .push_bind(record.out_address_2.as_deref().map(sanitize_string));
         });
     
         match query_builder.build().execute(&self.pool).await {
@@ -107,17 +105,18 @@ impl MySQL {
             }
         }
     }
-    pub async fn fetch_latest_timestamp(&self) -> Result<Option<i64>, SqlxError> {
-        let result = sqlx::query_scalar!(
-            r#"
-            SELECT MAX(timestamp) as "timestamp: i64"
-            FROM swap_history_2
-            "#,
+
+    pub async fn fetch_latest_timestamp(&self) -> Result<Option<i32>, SqlxError> {
+        let result: Option<i32> = sqlx::query_scalar(
+            "SELECT MAX(timestamp) FROM swap_history_2"
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
+        
         Ok(result)
     }
+    
+    
 
     pub async fn fetch_all(
         &self,
@@ -139,24 +138,28 @@ impl MySQL {
             WHERE (1 = 1)
             {}
             {}
-            ORDER BY {} {:?}
-            LIMIT ? OFFSET ?
+            ORDER BY {} {}
+            LIMIT $1 OFFSET $2
             "#,
             if search.is_some() {
-                "AND (tx_id LIKE ? OR in_address LIKE ? OR out_address_1 LIKE ? OR out_address_2 LIKE ?)"
+                "AND (tx_id LIKE $3 OR in_address LIKE $4 OR out_address_1 LIKE $5 OR out_address_2 LIKE $6)"
             } else {
                 ""
             },
             if let Some(_) = date {
-                "AND date = ?"
+                if search.is_some() { "AND date = $7" } else { "AND date = $3" }
             } else {
                 ""
             },
             sort_by,
-            order,
+            match order {
+                OrderType::ASC => "ASC",
+                OrderType::DESC => "DESC",
+            },
         );
 
         let mut query = sqlx::query_as::<_, SwapTransactionFromatted>(&base_query);
+        query = query.bind(limit as i64).bind(offset as i64);
 
         if let Some(search_term) = search {
             let search_pattern = format!("%{}%", search_term);
@@ -170,11 +173,7 @@ impl MySQL {
         if let Some(date_value) = date {
             query = query.bind(date_value);
         }
-        
-        query = query.bind(limit as i64).bind(offset as i64);
-
         let records = query.fetch_all(&self.pool).await?;
-
         Ok(records)
     }
 }

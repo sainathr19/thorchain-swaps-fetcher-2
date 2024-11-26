@@ -77,4 +77,15 @@ impl MidGard {
         );
         Self::fetch_with_retry(&url, &client).await
     }
+
+    pub async fn fetch_action_with_transactionid(
+        tx_id: String,
+    ) -> Result<ActionsFetchResponse, reqwest::Error> {
+        let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
+        let url = format!(
+            "https://vanaheimex.com/actions?txid={}",
+            tx_id
+        );
+        Self::fetch_with_retry(&url, &client).await
+    }
 }

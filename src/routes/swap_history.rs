@@ -5,7 +5,7 @@ use actix_web::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{db::MySQL, utils::parse_u64};
+use crate::{db::PostgreSQL, utils::parse_u64};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum OrderType {
@@ -23,7 +23,7 @@ pub struct RequestBody {
 }
 #[post("/swaps")]
 pub async fn swap_history(
-    mysql: web::Data<MySQL>,
+    pg: web::Data<PostgreSQL>,
     options: web::Json<RequestBody>,
 ) -> impl Responder {
     let options = options.into_inner();
@@ -36,7 +36,7 @@ pub async fn swap_history(
     let page = parse_u64(&options.page).unwrap();
     let limit = parse_u64(&options.limit).unwrap();
     let offset: u64 = (page - 1) * limit;
-    let records = mysql
+    let records = pg
         .fetch_all(
             order,
             limit,
