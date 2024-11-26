@@ -1,6 +1,6 @@
 // use super::{calculate_transaction_amount, coingecko::COINGECKO_INSTANCE};
 use crate::{
-    db::MySQL,
+    db::PostgreSQL,
     models::actions_model::{SwapTransaction, SwapTransactionFromatted, TransactionData},
     utils::{
         asset_name_from_pool, convert_nano_to_sec, convert_to_standard_unit,
@@ -10,6 +10,16 @@ use crate::{
 use reqwest::Error as ReqwestError;
 use sqlx::Error as SqlxError;
 use std::fmt;
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use lazy_static::lazy_static;
+
+use super::midgard::MidGard;
+
+lazy_static! {
+    pub static ref PENDING_TRANSACTION_IDS: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+}
 
 #[derive(Debug)]
 pub enum TransactionError {
@@ -80,16 +90,16 @@ impl TransactionHandler {
     }
 
     pub async fn parse_transaction(
+        &self,
         swap: &SwapTransaction,
     ) -> Result<SwapTransactionFromatted, TransactionError> {
         let (swap_date, swap_time) = format_epoch_timestamp(&swap.date).expect("Formatting error");
-        let epoc_timestamp = parse_f64(convert_nano_to_sec(&swap.date).as_str()).unwrap() as i64;    
+        let epoc_timestamp = parse_f64(convert_nano_to_sec(&swap.date).as_str()).unwrap() as i64;   
         let tx_id = swap
             .in_data
             .get(0)
             .and_then(|data| data.txID.clone())
             .ok_or(TransactionError::MissingTxId)?;
-    
         let handler = TransactionHandler;
         let in_data = swap.in_data.get(0).ok_or(TransactionError::MissingInData)?;
         let (in_asset, in_amount, in_address) = handler.parse_data(in_data).await?;
@@ -129,20 +139,18 @@ impl TransactionHandler {
             out_asset_2,
             out_amount_2,
             out_address_2,
+            status : swap.status.clone()
         })
     }
 
     pub async fn process_and_insert_transaction(
-        mysql: &MySQL,
+        &self,
+        pg: &PostgreSQL,
         actions: &Vec<SwapTransaction>,
     ) -> Result<(), TransactionError> {
         
         for swap in actions {
-            if swap.status != "success" {
-                println!("Transaction Pending");
-                continue;
-            }
-            let transaction_info = TransactionHandler::parse_transaction(&swap).await;
+            let transaction_info = self.parse_transaction(&swap).await;
 
             let transaction_info = match transaction_info {
                 Ok(val) => val,
@@ -151,28 +159,21 @@ impl TransactionHandler {
                     continue;
                 }
             };
-            if let Err(err) = mysql.insert_new_record(transaction_info.clone()).await {
+            if let Err(err) = pg.insert_new_record(transaction_info.clone()).await {
                 println!("Error during insertion: {:?}", err);
             } 
-            // else {
-            //     println!("Insertion Successful for Id : {}", &transaction_info.tx_id);
-            // }
         }
 
         Ok(())
     }
 
     pub async fn process_transactions(
+        &self,
         actions: &Vec<SwapTransaction>,
     ) -> Result<Vec<SwapTransactionFromatted>, TransactionError> {
         let mut result : Vec<SwapTransactionFromatted> = Vec::new();
         for swap in actions {
-            if swap.status != "success" {
-                println!("Transaction Pending");
-                continue;
-            }
-            let transaction_info = TransactionHandler::parse_transaction(&swap).await;
-
+            let transaction_info = self.parse_transaction(&swap).await;
             let transaction_info = match transaction_info {
                 Ok(val) => val,
                 Err(err) => {
@@ -180,8 +181,18 @@ impl TransactionHandler {
                     continue;
                 }
             };
-            result.push(transaction_info);
+            if transaction_info.status!="success"{
+                println!("Found Pending Transaction : {:?}",&transaction_info.tx_id);
+                TransactionHandler::track_pending_transaction(transaction_info.tx_id).await;
+            }else{
+                result.push(transaction_info);
+            }
         }
         Ok(result)
+    }
+    
+    async fn track_pending_transaction(transaction_id: String) {
+        let mut pending_txn_ids = PENDING_TRANSACTION_IDS.lock().await;
+        pending_txn_ids.insert(transaction_id);
     }
 }
