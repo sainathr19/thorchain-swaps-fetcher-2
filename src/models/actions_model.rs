@@ -62,4 +62,5 @@ pub struct SwapTransactionFromatted {
     pub out_asset_2: Option<String>,
     pub out_amount_2: Option<f64>,
     pub out_address_2: Option<String>,
+    pub status : String
 }
