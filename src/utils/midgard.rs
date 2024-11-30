@@ -3,7 +3,6 @@ use reqwest::Client;
 use std::time::Duration;
 
 pub struct MidGard;
-
 impl MidGard {
     async fn fetch_with_retry(
         url: &str,
@@ -42,48 +41,55 @@ impl MidGard {
     }
 
     pub async fn fetch_actions_with_nextpage(
+        base_url: &str,
         next_page_token: &str,
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
         let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = if next_page_token.is_empty() {
-            "https://vanaheimex.com/actions?type=swap&asset=notrade,BTC.BTC".to_string()
+            base_url.to_string()
         } else {
             format!(
-                "https://vanaheimex.com/actions?type=swap&asset=notrade,BTC.BTC&nextPageToken={}",
-                next_page_token
+                "{}&nextPageToken={}",
+                base_url,next_page_token
             )
         };
         Self::fetch_with_retry(&url, &client).await
     }
 
     pub async fn fetch_actions_with_prevpage(
+        base_url: &str,
         prev_page_token: &str,
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
         let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = format!(
-            "https://vanaheimex.com/actions?type=swap&asset=notrade,BTC.BTC&prevPageToken={}",
+            "{}&prevPageToken={}",
+            base_url,
             prev_page_token
         );
         Self::fetch_with_retry(&url, &client).await
     }
 
     pub async fn fetch_actions_with_timestamp(
+        base_url: &str,
         timestamp: &str,
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
         let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = format!(
-            "https://vanaheimex.com/actions?type=swap&asset=notrade,BTC.BTC&fromTimestamp={}",
+            "{}&fromTimestamp={}",
+            base_url,
             timestamp
         );
         Self::fetch_with_retry(&url, &client).await
     }
 
     pub async fn fetch_action_with_transactionid(
+        base_url: &str,
         tx_id: String,
     ) -> Result<ActionsFetchResponse, reqwest::Error> {
         let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
         let url = format!(
-            "https://vanaheimex.com/actions?txid={}",
+            "{}?txid={}",
+            base_url,
             tx_id
         );
         Self::fetch_with_retry(&url, &client).await

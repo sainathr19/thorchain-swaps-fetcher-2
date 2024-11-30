@@ -5,7 +5,7 @@ use crate::{
     utils::{
         asset_name_from_pool, convert_nano_to_sec, convert_to_standard_unit,
         format_epoch_timestamp, parse_f64,
-    },
+    }, SwapType,
 };
 use reqwest::Error as ReqwestError;
 use sqlx::Error as SqlxError;
@@ -15,10 +15,13 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use lazy_static::lazy_static;
 
-use super::midgard::MidGard;
+use super::asset_name_from_trade_pool;
 
 lazy_static! {
-    pub static ref PENDING_TRANSACTION_IDS: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    pub static ref TRADE_SWAPS_PENDING_IDS: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+}
+lazy_static! {
+    pub static ref NATIVE_SWAPS_PENDING_IDS: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
 }
 
 #[derive(Debug)]
@@ -83,7 +86,7 @@ impl TransactionHandler {
         let standard_amount = convert_to_standard_unit(token_amount, 8);
 
         let asset_name =
-            asset_name_from_pool(&coin.asset).ok_or(TransactionError::MissingAssetName)?;
+            asset_name_from_trade_pool(&coin.asset).ok_or(TransactionError::MissingAssetName)?;
         let address = info.address.clone();
 
         Ok((asset_name, standard_amount, address))
@@ -100,6 +103,7 @@ impl TransactionHandler {
             .get(0)
             .and_then(|data| data.txID.clone())
             .ok_or(TransactionError::MissingTxId)?;
+        println!("Current Progress Date : {}",&swap_date);
         let handler = TransactionHandler;
         let in_data = swap.in_data.get(0).ok_or(TransactionError::MissingInData)?;
         let (in_asset, in_amount, in_address) = handler.parse_data(in_data).await?;
@@ -147,19 +151,28 @@ impl TransactionHandler {
         &self,
         pg: &PostgreSQL,
         actions: &Vec<SwapTransaction>,
+        swap_type: SwapType
     ) -> Result<(), TransactionError> {
-        let processed_transactions = self.process_transactions(actions).await.unwrap();
-        for swap in processed_transactions{
-            if let Err(err) = pg.insert_new_record(swap.clone()).await {
-                println!("Error during insertion: {:?}", err);
-            } 
+        let processed_transactions = self.process_transactions(actions,swap_type.clone()).await.unwrap();
+        let table_name = match swap_type {
+            SwapType::NATIVE => "btc_user_data",
+            SwapType::TRADE => "swap_history_test"
+        };
+        if let Err(err) = pg.insert_bulk(table_name, processed_transactions).await{
+            println!("Error Inserting Bulk : {:?}",err);
         }
+        // for swap in processed_transactions{
+        //     if let Err(err) = pg.insert_new_record(swap.clone()).await {
+        //         println!("Error during insertion: {:?}", err);
+        //     }
+        // }
         Ok(())
     }
 
     pub async fn process_transactions(
         &self,
         actions: &Vec<SwapTransaction>,
+        swap_type: SwapType
     ) -> Result<Vec<SwapTransactionFromatted>, TransactionError> {
         let mut result : Vec<SwapTransactionFromatted> = Vec::new();
         let mut pending_count = 0;
@@ -173,7 +186,7 @@ impl TransactionHandler {
                 }
             };
             if transaction_info.status!="success"{
-                self.track_pending_transaction(transaction_info.tx_id).await;
+                self.track_pending_transaction(transaction_info.tx_id,swap_type.clone()).await;
                 pending_count+=1;
             }else{
                 result.push(transaction_info);
@@ -183,8 +196,11 @@ impl TransactionHandler {
         Ok(result)
     }
     
-    pub async fn track_pending_transaction(&self,transaction_id: String) {
-        let mut pending_txn_ids = PENDING_TRANSACTION_IDS.lock().await;
+    pub async fn track_pending_transaction(&self,transaction_id: String,swap_type: SwapType) {
+        let mut pending_txn_ids = match swap_type {
+            SwapType::NATIVE => NATIVE_SWAPS_PENDING_IDS.lock().await,
+            SwapType::TRADE => TRADE_SWAPS_PENDING_IDS.lock().await,
+        };
         pending_txn_ids.insert(transaction_id);
     }
 }
