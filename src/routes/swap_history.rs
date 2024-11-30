@@ -38,6 +38,7 @@ pub async fn swap_history(
     let offset: u64 = (page - 1) * limit;
     let records = pg
         .fetch_all(
+            "btc_user_data",
             order,
             limit,
             options.sort_by,
