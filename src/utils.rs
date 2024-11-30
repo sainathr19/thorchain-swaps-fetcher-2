@@ -54,6 +54,18 @@ pub fn asset_name_from_pool(pool_name: &str) -> Option<String> {
     }
 }
 
+pub fn asset_name_from_trade_pool(pool_name: &str) -> Option<String> {
+    let delimiters = r"[./~]";
+    let re = Regex::new(delimiters).unwrap();
+    let mut parts = re.split(pool_name);
+    let delimiter_match = re.find(pool_name).map(|m| m.as_str()); // Find the first matched delimiter.
+
+    match (parts.next(), parts.next(), delimiter_match) {
+        (Some(first), Some(second), Some(delimiter)) => Some(format!("{}{}{}", first, delimiter, second)),
+        _ => None,
+    }
+}
+
 pub fn format_date_for_sql(date_str: &str) -> Result<String, ParseError> {
     let date = NaiveDate::parse_from_str(date_str, "%d-%m-%Y")?;
     Ok(date.format("%Y-%m-%d").to_string())
