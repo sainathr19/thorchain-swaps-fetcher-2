@@ -24,13 +24,13 @@ impl PostgreSQL {
 
     pub async fn insert_new_record(
         &self,
+        table_name: &str,
         record: SwapTransactionFromatted,
     ) -> Result<(), SqlxError> {
-        let date = format_date_for_sql(&record.date).unwrap();  
-        
-        sqlx::query!(
+        let date = format_date_for_sql(&record.date).unwrap();        
+        let query = format!(
             r#"
-            INSERT INTO swap_history_2 (
+            INSERT INTO {} (
                 timestamp, date, time, tx_id, 
                 in_asset, in_amount, in_address, 
                 out_asset_1, out_amount_1, out_address_1, 
@@ -43,83 +43,107 @@ impl PostgreSQL {
                 $11, $12, $13
             )
             "#,
-            record.timestamp as i32,
-            date,
-            record.time,
-            record.tx_id,
-            record.in_asset,
-            record.in_amount,
-            record.in_address,
-            record.out_asset_1,
-            record.out_amount_1,
-            record.out_address_1,
-            record.out_asset_2,
-            record.out_amount_2,
-            record.out_address_2
-        )
-        .execute(&self.pool)
-        .await?;
+            table_name
+        );
+        
+        sqlx::query(&query)
+            .bind(record.timestamp as i32)
+            .bind(date)
+            .bind(record.time)
+            .bind(record.tx_id)
+            .bind(record.in_asset)
+            .bind(record.in_amount)
+            .bind(record.in_address)
+            .bind(record.out_asset_1)
+            .bind(record.out_amount_1)
+            .bind(record.out_address_1)
+            .bind(record.out_asset_2)
+            .bind(record.out_amount_2)
+            .bind(record.out_address_2)
+            .execute(&self.pool)
+            .await?;
     
         Ok(())
     }
 
     pub async fn insert_bulk(
         &self,
+        table_name: &str,
         records: Vec<SwapTransactionFromatted>,
     ) -> Result<(), SqlxError> {
         if records.is_empty() {
             return Ok(());
         }
-            let query = "INSERT INTO swap_history_2 (
-            timestamp, date, time, tx_id, 
-            in_asset, in_amount, in_address, 
-            out_asset_1, out_amount_1, out_address_1, 
-            out_asset_2, out_amount_2, out_address_2
-        ) VALUES ";
     
-        let mut query_builder = sqlx::QueryBuilder::new(query);
-        query_builder.push_values(records, |mut b, record| {
-        let date = format_date_for_sql(&record.date).unwrap_or_default();
+        let query = format!(
+            "INSERT INTO {} (
+                timestamp, date, time, tx_id, 
+                in_asset, in_amount, in_address, 
+                out_asset_1, out_amount_1, out_address_1, 
+                out_asset_2, out_amount_2, out_address_2
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (tx_id) DO NOTHING",
+            table_name
+        );
+    
+        let mut successful_count = 0;
+        let total_records = records.len();
+    
+        for record in records {
+            let date = format_date_for_sql(&record.date).unwrap_or_default();
             
-        b.push_bind(record.timestamp)
-         .push_bind(date)
-         .push_bind(record.time)
-         .push_bind(record.tx_id)
-         .push_bind(sanitize_string(&record.in_asset))
-         .push_bind(record.in_amount)
-         .push_bind(sanitize_string(&record.in_address))
-         .push_bind(sanitize_string(&record.out_asset_1))
-         .push_bind(record.out_amount_1)
-         .push_bind(sanitize_string(&record.out_address_1))
-         .push_bind(record.out_asset_2.as_deref().map(sanitize_string))
-         .push_bind(record.out_amount_2)
-         .push_bind(record.out_address_2.as_deref().map(sanitize_string));
-        });
-    
-        match query_builder.build().execute(&self.pool).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                println!("Error executing query: {:?}", e);
-                println!("Query: {}", query_builder.sql());
-                Err(e)
+            match sqlx::query(&query)
+                .bind(record.timestamp)
+                .bind(date)
+                .bind(record.time)
+                .bind(record.tx_id)
+                .bind(sanitize_string(&record.in_asset))
+                .bind(record.in_amount)
+                .bind(sanitize_string(&record.in_address))
+                .bind(sanitize_string(&record.out_asset_1))
+                .bind(record.out_amount_1)
+                .bind(sanitize_string(&record.out_address_1))
+                .bind(record.out_asset_2.as_deref().map(sanitize_string))
+                .bind(record.out_amount_2)
+                .bind(record.out_address_2.as_deref().map(sanitize_string))
+                .execute(&self.pool)
+                .await 
+            {
+                Ok(_) => successful_count += 1,
+                Err(e) => {
+                    println!("Error inserting record: {:?}", e);
+                    println!("Failed record");
+                    // Optionally, you could log the specific record that failed
+                }
             }
         }
+    
+        println!("Inserted {}/{} records", successful_count, total_records);
+    
+        Ok(())
     }
 
-    pub async fn fetch_latest_timestamp(&self) -> Result<Option<i32>, SqlxError> {
-        let result: Option<i32> = sqlx::query_scalar(
-            "SELECT MAX(timestamp) FROM swap_history_2"
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+    pub async fn fetch_latest_timestamp(&self, table_name: &str) -> Result<Option<i64>, SqlxError> {
+        let query = format!("SELECT MAX(timestamp) FROM {}", table_name);
+        let result: Option<i64> = sqlx::query_scalar(&query)
+            .fetch_optional(&self.pool)
+            .await?;
         
         Ok(result)
     }
-    
-    
+
+    pub async fn fetch_last_timestamp(&self, table_name: &str) -> Result<Option<i64>, SqlxError> {
+        let query = format!("SELECT MIN(timestamp) FROM {}", table_name);
+        let result: Option<i64> = sqlx::query_scalar(&query)
+            .fetch_optional(&self.pool)
+            .await?;
+        
+        Ok(result)
+    }
 
     pub async fn fetch_all(
         &self,
+        table_name: &str,
         order: OrderType,
         limit: u64,
         sort_by: String,
@@ -134,13 +158,14 @@ impl PostgreSQL {
                 in_asset, in_amount, in_address,
                 out_asset_1, out_amount_1, out_address_1,
                 out_asset_2, out_amount_2, out_address_2
-            FROM transactions
+            FROM {}
             WHERE (1 = 1)
             {}
             {}
             ORDER BY {} {}
             LIMIT $1 OFFSET $2
             "#,
+            table_name,
             if search.is_some() {
                 "AND (tx_id LIKE $3 OR in_address LIKE $4 OR out_address_1 LIKE $5 OR out_address_2 LIKE $6)"
             } else {
