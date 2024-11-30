@@ -3,7 +3,7 @@ use std::env;
 use dotenv::dotenv;
 
 use crate::{
-    models::actions_model::SwapTransactionFromatted,
+    models::{actions_model::SwapTransactionFromatted, closing_prices::ClosingPriceInterval},
     routes::swap_history::OrderType,
     utils::{format_date_for_sql, sanitize_string},
 };
@@ -65,7 +65,29 @@ impl PostgreSQL {
     
         Ok(())
     }
+    
+    pub async fn insert_closing_price(
+        &self,
+        record: ClosingPriceInterval,
+    ) -> Result<(), SqlxError> {
+        let query = r#"
+            INSERT INTO btc_closing_prices (
+                date,
+                closing_price_usd
+            )
+            VALUES ($1, $2)
+            ON CONFLICT (date) DO UPDATE 
+            SET closing_price_usd = EXCLUDED.closing_price_usd
+        "#;
 
+        sqlx::query(query)
+            .bind(record.date)
+            .bind(record.closing_price_usd)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
     pub async fn insert_bulk(
         &self,
         table_name: &str,

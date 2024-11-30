@@ -12,7 +12,7 @@ use db::PostgreSQL;
 use fetcher::fetch_historical_data;
 use futures_util::lock::Mutex;
 use lazy_static::lazy_static;
-use utils::cron::{start_cronjob, start_retry};
+use utils::cron::{start_cronjob, start_fetch_closing_price, start_retry};
 
 #[get("/")]
 async fn home() -> impl Responder {
@@ -39,22 +39,40 @@ pub enum SwapType {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {    
     let pg = PostgreSQL::init().await.expect("Error COnnecting to POSTGRESQL");
-
-    // tokio::spawn(async move{ fetch_historical_data().await});
     
-    let pg_clone = pg.clone();
-    tokio::spawn(async move { start_cronjob(pg_clone,NATIVE_SWAPS_BASE_URL,SwapType::NATIVE).await });
-    let pg_clone = pg.clone();
-    tokio::spawn(async move { start_retry(pg_clone,NATIVE_SWAPS_BASE_URL,NATIVE_SWAPS_PENDING_IDS.clone(),SwapType::NATIVE).await });
+    let pg = Arc::new(pg);
 
-    let pg_clone = pg.clone();
-    tokio::spawn(async move { start_cronjob(pg_clone,TRADE_SWAPS_BASE_URL,SwapType::TRADE).await });
-    let pg_clone = pg.clone();
-    tokio::spawn(async move { start_retry(pg_clone,TRADE_SWAPS_BASE_URL,TRADE_SWAPS_PENDING_IDS.clone(),SwapType::TRADE).await });
+    // FETCH NATIVE SWAPS
+    tokio::spawn({
+        let pg = pg.clone();
+        async move { start_cronjob((*pg).clone(), NATIVE_SWAPS_BASE_URL, SwapType::NATIVE).await }
+    });
 
+    // RETRY PENDING NATIVE SWAPS
+    tokio::spawn({
+        let pg = pg.clone();
+        async move { start_retry((*pg).clone(), NATIVE_SWAPS_BASE_URL, NATIVE_SWAPS_PENDING_IDS.clone(), SwapType::NATIVE).await }
+    });
 
+    // FETCH TRADE SWAPS
+    tokio::spawn({
+        let pg = pg.clone();
+        async move { start_cronjob((*pg).clone(), TRADE_SWAPS_BASE_URL, SwapType::TRADE).await }
+    });
 
-    let pg_data = Data::new(pg);
+    // RETRY PENDING TRADE SWAPS
+    tokio::spawn({
+        let pg = pg.clone();
+        async move { start_retry((*pg).clone(), TRADE_SWAPS_BASE_URL, TRADE_SWAPS_PENDING_IDS.clone(), SwapType::TRADE).await }
+    });
+
+    // FETCH DAILY CLOSING PRICE
+    tokio::spawn({
+        let pg = pg.clone();
+        async move { start_fetch_closing_price((*pg).clone()).await }
+    });
+
+    let pg_data = Data::new((*pg).clone());
     let server = HttpServer::new(move || {
         App::new()
             .app_data(pg_data.clone())

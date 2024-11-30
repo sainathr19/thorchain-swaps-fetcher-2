@@ -3,12 +3,54 @@ use std::sync::Arc;
 
 use crate::db::PostgreSQL;
 use crate::models::actions_model::SwapTransactionFromatted;
+use crate::models::closing_prices::ClosingPriceInterval;
+use crate::utils::coingecko::CoinGecko;
 use crate::utils::midgard::MidGard;
 use crate::utils::transaction_handler::{TransactionError, TransactionHandler};
 use crate::utils::{read_next_page_token_from_file, write_next_page_token_to_file};
 use crate::SwapType;
 use chrono::Utc;
 use futures_util::lock::Mutex;
+
+pub async fn fetch_btc_closing_price(pg:&PostgreSQL)-> Result<(),TransactionError>{
+    let coingecko = match CoinGecko::init(){
+        Ok(coingecko)=>{
+            coingecko
+        },
+        Err(err)=>{
+            println!("Error Initializing CoinGecko : {:?}",err);
+            return Err(TransactionError::ApiError(String::from("Error Initializing CoinGecko")));
+        }
+    };
+
+    let btc_coin_id = "bitcoin";
+    let today = Utc::now();
+    let coingecko_date = today.format("%d-%m-%Y").to_string();
+    let current_date = today.format("%Y-%m-%d").to_string();
+
+    let closing_price_usd = match coingecko.fetch_usd_price(&btc_coin_id, &coingecko_date).await{
+        Ok(closing_price) => closing_price,
+        Err(err)=>{
+            println!("Error Fetching Closing Price : {:?}",err);
+            return Err(TransactionError::PriceFetchError(btc_coin_id.to_string()));
+        }
+    };
+
+    let closing_price_interval = ClosingPriceInterval{
+        date : current_date.clone(),
+        closing_price_usd
+    };
+    match pg.insert_closing_price(closing_price_interval).await{
+        Ok(_)=>{
+            println!("Closing Price Inserted Successfully for Date : {} Price : {}",&current_date,&closing_price_usd);
+        }
+        Err(err)=>{
+            println!("Error Inserting Closing Price : {:?}",err);
+        }
+    }
+
+    Ok(())
+}
 pub async fn fetch_historical_data(base_url: &str,swap_type: SwapType) -> Result<(), TransactionError> {
     println!("Starting..");
     let pg = PostgreSQL::init().await.map_err(|e| {

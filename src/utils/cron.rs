@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use futures_util::lock::Mutex;
 
-use crate::{db::PostgreSQL, fetcher::{fetch_latest_data, retry_pending_transactions}, SwapType};
+use crate::{db::PostgreSQL, fetcher::{fetch_btc_closing_price, fetch_latest_data, retry_pending_transactions}, SwapType};
 
 
 pub async fn start_cronjob(pg: PostgreSQL,base_url: &str,swap_type: SwapType) {
@@ -34,3 +34,15 @@ pub async fn start_retry(pg: PostgreSQL,base_url: &str,pending_ids: Arc<Mutex<Ha
         }
     }
 }
+
+pub async fn start_fetch_closing_price(pg: PostgreSQL) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10)); // 24 hours
+    loop {
+        interval.tick().await;
+        println!("Fetching BTC Closing Price");
+        if let Err(e) = fetch_btc_closing_price(&pg).await {
+            println!("Error fetching closing price: {}", e);
+        }
+    }
+}
+

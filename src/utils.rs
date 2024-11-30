@@ -1,4 +1,4 @@
-// pub mod coingecko;
+pub mod coingecko;
 pub mod cron;
 pub mod midgard;
 pub mod transaction_handler;

@@ -28,7 +28,7 @@ lazy_static! {
 pub enum TransactionError {
     MissingInCoin,
     MissingAssetName,
-    // CoinNotFound(String),
+    CoinNotFound(String),
     PriceFetchError(String),
     MissingTxId,
     MissingInData,
@@ -45,7 +45,7 @@ impl fmt::Display for TransactionError {
         match self {
             TransactionError::MissingInCoin => write!(f, "Missing in_coin"),
             TransactionError::MissingAssetName => write!(f, "Error parsing asset name"),
-            // TransactionError::CoinNotFound(coin_name) => write!(f, "Coin not found: {}", coin_name),
+            TransactionError::CoinNotFound(coin_name) => write!(f, "Coin not found: {}", coin_name),
             TransactionError::PriceFetchError(coin_name) => {
                 write!(f, "Price fetch failed for: {}", coin_name)
             }
