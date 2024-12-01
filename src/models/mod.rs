@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 pub mod actions_model;
 pub mod closing_prices;
+pub mod chainflip_swaps;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CurrentPrice {

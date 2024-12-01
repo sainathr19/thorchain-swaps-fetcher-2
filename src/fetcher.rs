@@ -3,14 +3,131 @@ use std::sync::Arc;
 
 use crate::db::PostgreSQL;
 use crate::models::actions_model::SwapTransactionFromatted;
+use crate::models::chainflip_swaps::ChainflipSwap;
 use crate::models::closing_prices::ClosingPriceInterval;
 use crate::utils::coingecko::CoinGecko;
 use crate::utils::midgard::MidGard;
 use crate::utils::transaction_handler::{TransactionError, TransactionHandler};
-use crate::utils::{read_next_page_token_from_file, write_next_page_token_to_file};
+use crate::utils::{parse_f64, read_next_page_token_from_file, write_next_page_token_to_file};
 use crate::SwapType;
 use chrono::Utc;
 use futures_util::lock::Mutex;
+
+pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<(), TransactionError> {
+    let mut offset = 0;
+    let limit = 20;
+
+    'outer: loop {
+        let resp = match crate::utils::chainflip::ChainFlip::fetch_chainflip_swaps(
+            base_url,
+            Some(limit),
+            Some(offset),
+            None,
+        ).await {
+            Ok(response) => response,
+            Err(err) => {
+                return Err(TransactionError::ApiError(format!(
+                    "Error fetching Chainflip swaps: {:?}",
+                    err
+                )));
+            }
+        };
+
+        let swaps = resp.data.allSwapRequests;
+
+        // Process each swap
+        for edge in swaps.edges {
+            let node = &edge.node;
+            
+            // Get egress and channel data
+            let egress = match &node.egressByEgressId {
+                Some(e) => e,
+                None => {
+                    println!("Skipping swap {} - missing egress data", node.nativeId);
+                    continue;
+                }
+            };
+
+            let channel = match &node.swapChannelByDepositChannelId {
+                Some(c) => c,
+                None => {
+                    println!("Skipping swap {} - missing channel data", node.nativeId);
+                    continue;
+                }
+            };
+
+            // Get date and time from timestamp
+            let dt = chrono::DateTime::parse_from_rfc3339(&egress.eventByScheduledEventId.blockByBlockId.timestamp)
+                .unwrap_or_else(|_| chrono::DateTime::parse_from_rfc3339("1970-01-01T00:00:00Z").unwrap());
+            
+            let date = dt.format("%Y-%m-%d").to_string();
+
+            let formatted_data = ChainflipSwap {
+                timestamp: dt.timestamp(),
+                date,
+                swap_id: node.nativeId.clone(),
+                in_asset: node.sourceAsset.to_uppercase(),
+                in_amount: if let Some(swaps) = &node.executedSwaps {
+                    parse_f64(&swaps.aggregates.sum.swapInputAmount)
+                        .unwrap_or_else(|e| {
+                            println!("Error parsing input amount: {}", e);
+                            0.0
+                        })
+                } else {
+                    println!("No executed swaps data for {}", node.nativeId);
+                    0.0
+                },
+                in_address: channel.depositAddress.clone(),
+                in_amount_usd: if let Some(swaps) = &node.executedSwaps {
+                    parse_f64(&swaps.aggregates.sum.swapInputValueUsd)
+                        .unwrap_or_else(|e| {
+                            println!("Error parsing input USD amount: {}", e);
+                            0.0
+                        })
+                } else {
+                    0.0
+                },
+                out_amount_usd: if let Some(swaps) = &node.executedSwaps {
+                    parse_f64(&swaps.aggregates.sum.swapOutputValueUsd)
+                        .unwrap_or_else(|e| {
+                            println!("Error parsing output USD amount: {}", e);
+                            0.0
+                        })
+                } else {
+                    0.0
+                },
+                out_asset: node.destinationAsset.to_uppercase(),
+                out_amount: if let Some(swaps) = &node.executedSwaps {
+                    parse_f64(&swaps.aggregates.sum.swapOutputAmount)
+                        .unwrap_or_else(|e| {
+                            println!("Error parsing output amount: {}", e);
+                            0.0
+                        })
+                } else {
+                    0.0
+                },
+                out_address: node.destinationAddress.clone(),
+            };
+
+            // Insert into database with detailed error logging
+            match pg.insert_chainflip_swap(formatted_data.clone()).await {
+                Ok(_) => println!("Successfully inserted swap {:?} Date : {}", node.nativeId,formatted_data.date),
+                Err(e) => {
+                    println!("Error Message: {}", e);
+                    break 'outer;
+                }
+            }
+        }
+        // Check if we have more pages
+        if !swaps.pageInfo.hasNextPage {
+            break 'outer;
+        }
+
+        offset += limit;
+    }
+
+    Ok(())
+}
 
 pub async fn fetch_btc_closing_price(pg:&PostgreSQL)-> Result<(),TransactionError>{
     let coingecko = match CoinGecko::init(){
@@ -101,10 +218,10 @@ pub async fn fetch_historical_data(base_url: &str,swap_type: SwapType) -> Result
 
         if batch_count>=20{
             let table_name = match swap_type {
-                SwapType::NATIVE => "btc_user_data",
+                SwapType::NATIVE => "native_swaps_thorchain",
                 SwapType::TRADE => "swap_history_test"
             };
-            let insertion_response = pg.insert_bulk(table_name, transaction_batch.clone()).await;
+            let insertion_response = pg.insert_bulk_native(table_name, transaction_batch.clone()).await;
             match insertion_response {
                 Ok(_)=>{
                     println!("Batch insertion Successfull of : {}",&transaction_batch.len());

@@ -1,9 +1,10 @@
 use sqlx::{postgres::PgPool, Error as SqlxError};
 use std::env;
 use dotenv::dotenv;
+use chrono;
 
 use crate::{
-    models::{actions_model::SwapTransactionFromatted, closing_prices::ClosingPriceInterval},
+    models::{actions_model::SwapTransactionFromatted, chainflip_swaps::ChainflipSwap, closing_prices::ClosingPriceInterval},
     routes::swap_history::OrderType,
     utils::{format_date_for_sql, sanitize_string},
 };
@@ -21,6 +22,42 @@ impl PostgreSQL {
         println!("Connected to PostgreSQL");
         Ok(PostgreSQL { pool })
     }
+    pub async fn insert_chainflip_swap(
+        &self,
+        record: ChainflipSwap,
+    ) -> Result<(), SqlxError> {
+
+        let query = r#"
+            INSERT INTO chainflip_swaps (
+                timestamp, date, swap_id, 
+                in_asset, in_amount, in_amount_usd, in_address, 
+                out_asset, out_amount, out_amount_usd, out_address
+            )
+            VALUES (
+                $1, CAST($2 AS date), $3, 
+                $4, $5, $6, $7, 
+                $8, $9, $10, $11
+            )
+            "#;
+        
+        sqlx::query(query)
+            .bind(record.timestamp as i32)
+            .bind(record.date)
+            .bind(record.swap_id)
+            .bind(record.in_asset)
+            .bind(record.in_amount)
+            .bind(record.in_amount_usd)
+            .bind(record.in_address)
+            .bind(record.out_asset)
+            .bind(record.out_amount)
+            .bind(record.out_amount_usd)
+            .bind(record.out_address)
+            .execute(&self.pool)
+            .await?;
+    
+        Ok(())
+    }
+
 
     pub async fn insert_new_record(
         &self,
@@ -143,6 +180,55 @@ impl PostgreSQL {
         println!("Inserted {}/{} records", successful_count, total_records);
     
         Ok(())
+    }
+
+    pub async fn insert_bulk_native(
+        &self,
+        table_name: &str,
+        records: Vec<SwapTransactionFromatted>,
+    ) -> Result<(), SqlxError> {
+        if records.is_empty() {
+            return Ok(());
+        }
+        let query = format!(
+            "INSERT INTO {} (
+                timestamp, date, time, tx_id, 
+                in_asset, in_amount, in_address, 
+                out_asset_1, out_amount_1, out_address_1, 
+                out_asset_2, out_amount_2, out_address_2
+                    )",
+            table_name
+        );
+    
+        let mut query_builder = sqlx::QueryBuilder::new(query);
+        
+        // QueryBuilder will automatically add the VALUES keyword
+        query_builder.push_values(records, |mut b, record| {
+            let date = format_date_for_sql(&record.date).unwrap_or_default();
+            
+            b.push_bind(record.timestamp)
+             .push_bind(date)
+             .push_bind(record.time)
+             .push_bind(record.tx_id)
+             .push_bind(sanitize_string(&record.in_asset))
+             .push_bind(record.in_amount)
+             .push_bind(sanitize_string(&record.in_address))
+             .push_bind(sanitize_string(&record.out_asset_1))
+             .push_bind(record.out_amount_1)
+             .push_bind(sanitize_string(&record.out_address_1))
+             .push_bind(record.out_asset_2.as_deref().map(sanitize_string))
+             .push_bind(record.out_amount_2)
+             .push_bind(record.out_address_2.as_deref().map(sanitize_string));
+        });
+    
+        match query_builder.build().execute(&self.pool).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                println!("Error executing query: {:?}", e);
+                println!("Query: {}", query_builder.sql());
+                Err(e)
+            }
+        }
     }
 
     pub async fn fetch_latest_timestamp(&self, table_name: &str) -> Result<Option<i64>, SqlxError> {

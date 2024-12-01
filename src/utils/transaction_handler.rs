@@ -103,7 +103,6 @@ impl TransactionHandler {
             .get(0)
             .and_then(|data| data.txID.clone())
             .ok_or(TransactionError::MissingTxId)?;
-        println!("Current Progress Date : {}",&swap_date);
         let handler = TransactionHandler;
         let in_data = swap.in_data.get(0).ok_or(TransactionError::MissingInData)?;
         let (in_asset, in_amount, in_address) = handler.parse_data(in_data).await?;

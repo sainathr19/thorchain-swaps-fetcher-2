@@ -1,6 +1,7 @@
 pub mod coingecko;
 pub mod cron;
 pub mod midgard;
+pub mod chainflip;
 pub mod transaction_handler;
 
 use chrono::{NaiveDate, ParseError, TimeZone, Utc};

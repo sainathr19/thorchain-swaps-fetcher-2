@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use futures_util::lock::Mutex;
 
-use crate::{db::PostgreSQL, fetcher::{fetch_btc_closing_price, fetch_latest_data, retry_pending_transactions}, SwapType};
+use crate::{db::PostgreSQL, fetcher::{fetch_btc_closing_price, fetch_chainflip_swaps, fetch_latest_data, retry_pending_transactions}, SwapType};
 
 
 pub async fn start_cronjob(pg: PostgreSQL,base_url: &str,swap_type: SwapType) {
@@ -43,6 +43,18 @@ pub async fn start_fetch_closing_price(pg: PostgreSQL) {
         if let Err(e) = fetch_btc_closing_price(&pg).await {
             println!("Error fetching closing price: {}", e);
         }
+    }
+}
+
+
+pub async fn start_fetch_chainflip_swaps(pg: PostgreSQL,base_url: &str) {
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
+    loop {
+        println!("Fetching Chainflip Swaps");
+        if let Err(e) = fetch_chainflip_swaps(&base_url,&pg).await {
+            println!("Error fetching chainflip swaps: {}", e);
+        }
+        interval.tick().await;
     }
 }
 

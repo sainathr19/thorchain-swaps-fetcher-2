@@ -12,15 +12,16 @@ use db::PostgreSQL;
 use fetcher::fetch_historical_data;
 use futures_util::lock::Mutex;
 use lazy_static::lazy_static;
-use utils::cron::{start_cronjob, start_fetch_closing_price, start_retry};
+use utils::cron::{start_cronjob, start_fetch_chainflip_swaps, start_fetch_closing_price, start_retry};
 
 #[get("/")]
 async fn home() -> impl Responder {
     HttpResponse::Ok().body("Rust Backend Server")
 }
 
-const NATIVE_SWAPS_BASE_URL: &str = "https://vanaheimex.com/actions?limit=30&asset=notrade,BTC.BTC&txType=swap&type=swap";
-const TRADE_SWAPS_BASE_URL: &str = "https://vanaheimex.com/actions?limit=30&asset=trade,BTC~BTC&type=swap";
+const NATIVE_SWAPS_BASE_URL: &str = "https://vanaheimex.com/actions?asset=notrade,BTC.BTC&type=swap";
+const TRADE_SWAPS_BASE_URL: &str = "https://vanaheimex.com/actions?asset=trade,BTC~BTC&type=swap";
+const CHAINFLIP_BASE_URL: &str = "https://explorer-service-processor.chainflip.io/graphql";
 
 lazy_static! {
     pub static ref TRADE_SWAPS_PENDING_IDS: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
@@ -70,6 +71,12 @@ async fn main() -> std::io::Result<()> {
     tokio::spawn({
         let pg = pg.clone();
         async move { start_fetch_closing_price((*pg).clone()).await }
+    });
+
+    // FETCH CHAINFLIP SWAPS
+    tokio::spawn({
+        let pg = pg.clone();
+        async move { start_fetch_chainflip_swaps((*pg).clone(),CHAINFLIP_BASE_URL).await }
     });
 
     let pg_data = Data::new((*pg).clone());
