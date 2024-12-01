@@ -46,7 +46,7 @@ pub fn format_epoch_timestamp(epoch_nanos: &str) -> Result<(String, String), Box
     Ok((formatted_date, formatted_time))
 }
 
-pub fn asset_name_from_pool(pool_name: &str) -> Option<String> {
+pub fn _asset_name_from_pool(pool_name: &str) -> Option<String> {
     let re = Regex::new(r"[./~\-_|:;,+*^$!?]").unwrap();
     let mut parts = re.split(pool_name);
     match (parts.next(), parts.next()) {

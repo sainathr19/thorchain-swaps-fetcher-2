@@ -9,7 +9,6 @@ use std::{collections::HashSet, sync::Arc};
 use actix_cors::Cors;
 use actix_web::{get, web::Data, App, HttpResponse, HttpServer, Responder};
 use db::PostgreSQL;
-use fetcher::fetch_historical_data;
 use futures_util::lock::Mutex;
 use lazy_static::lazy_static;
 use utils::cron::{start_cronjob, start_fetch_chainflip_swaps, start_fetch_closing_price, start_retry};

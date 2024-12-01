@@ -3,7 +3,7 @@ use crate::{
     db::PostgreSQL,
     models::actions_model::{SwapTransaction, SwapTransactionFromatted, TransactionData},
     utils::{
-        asset_name_from_pool, convert_nano_to_sec, convert_to_standard_unit,
+     convert_nano_to_sec, convert_to_standard_unit,
         format_epoch_timestamp, parse_f64,
     }, SwapType,
 };
@@ -154,7 +154,7 @@ impl TransactionHandler {
     ) -> Result<(), TransactionError> {
         let processed_transactions = self.process_transactions(actions,swap_type.clone()).await.unwrap();
         let table_name = match swap_type {
-            SwapType::NATIVE => "btc_user_data",
+            SwapType::NATIVE => "native_swaps_thorchain",
             SwapType::TRADE => "swap_history_test"
         };
         if let Err(err) = pg.insert_bulk(table_name, processed_transactions).await{

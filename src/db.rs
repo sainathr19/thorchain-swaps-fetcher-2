@@ -1,7 +1,6 @@
 use sqlx::{postgres::PgPool, Error as SqlxError};
 use std::env;
 use dotenv::dotenv;
-use chrono;
 
 use crate::{
     models::{actions_model::SwapTransactionFromatted, chainflip_swaps::ChainflipSwap, closing_prices::ClosingPriceInterval},
@@ -52,51 +51,6 @@ impl PostgreSQL {
             .bind(record.out_amount)
             .bind(record.out_amount_usd)
             .bind(record.out_address)
-            .execute(&self.pool)
-            .await?;
-    
-        Ok(())
-    }
-
-
-    pub async fn insert_new_record(
-        &self,
-        table_name: &str,
-        record: SwapTransactionFromatted,
-    ) -> Result<(), SqlxError> {
-        let date = format_date_for_sql(&record.date).unwrap();        
-        let query = format!(
-            r#"
-            INSERT INTO {} (
-                timestamp, date, time, tx_id, 
-                in_asset, in_amount, in_address, 
-                out_asset_1, out_amount_1, out_address_1, 
-                out_asset_2, out_amount_2, out_address_2
-            )
-            VALUES (
-                $1, $2, $3, $4, 
-                $5, $6, $7, 
-                $8, $9, $10, 
-                $11, $12, $13
-            )
-            "#,
-            table_name
-        );
-        
-        sqlx::query(&query)
-            .bind(record.timestamp as i32)
-            .bind(date)
-            .bind(record.time)
-            .bind(record.tx_id)
-            .bind(record.in_asset)
-            .bind(record.in_amount)
-            .bind(record.in_address)
-            .bind(record.out_asset_1)
-            .bind(record.out_amount_1)
-            .bind(record.out_address_1)
-            .bind(record.out_asset_2)
-            .bind(record.out_amount_2)
-            .bind(record.out_address_2)
             .execute(&self.pool)
             .await?;
     
@@ -182,66 +136,8 @@ impl PostgreSQL {
         Ok(())
     }
 
-    pub async fn insert_bulk_native(
-        &self,
-        table_name: &str,
-        records: Vec<SwapTransactionFromatted>,
-    ) -> Result<(), SqlxError> {
-        if records.is_empty() {
-            return Ok(());
-        }
-        let query = format!(
-            "INSERT INTO {} (
-                timestamp, date, time, tx_id, 
-                in_asset, in_amount, in_address, 
-                out_asset_1, out_amount_1, out_address_1, 
-                out_asset_2, out_amount_2, out_address_2
-                    )",
-            table_name
-        );
-    
-        let mut query_builder = sqlx::QueryBuilder::new(query);
-        
-        // QueryBuilder will automatically add the VALUES keyword
-        query_builder.push_values(records, |mut b, record| {
-            let date = format_date_for_sql(&record.date).unwrap_or_default();
-            
-            b.push_bind(record.timestamp)
-             .push_bind(date)
-             .push_bind(record.time)
-             .push_bind(record.tx_id)
-             .push_bind(sanitize_string(&record.in_asset))
-             .push_bind(record.in_amount)
-             .push_bind(sanitize_string(&record.in_address))
-             .push_bind(sanitize_string(&record.out_asset_1))
-             .push_bind(record.out_amount_1)
-             .push_bind(sanitize_string(&record.out_address_1))
-             .push_bind(record.out_asset_2.as_deref().map(sanitize_string))
-             .push_bind(record.out_amount_2)
-             .push_bind(record.out_address_2.as_deref().map(sanitize_string));
-        });
-    
-        match query_builder.build().execute(&self.pool).await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                println!("Error executing query: {:?}", e);
-                println!("Query: {}", query_builder.sql());
-                Err(e)
-            }
-        }
-    }
-
     pub async fn fetch_latest_timestamp(&self, table_name: &str) -> Result<Option<i64>, SqlxError> {
         let query = format!("SELECT MAX(timestamp) FROM {}", table_name);
-        let result: Option<i64> = sqlx::query_scalar(&query)
-            .fetch_optional(&self.pool)
-            .await?;
-        
-        Ok(result)
-    }
-
-    pub async fn fetch_last_timestamp(&self, table_name: &str) -> Result<Option<i64>, SqlxError> {
-        let query = format!("SELECT MIN(timestamp) FROM {}", table_name);
         let result: Option<i64> = sqlx::query_scalar(&query)
             .fetch_optional(&self.pool)
             .await?;

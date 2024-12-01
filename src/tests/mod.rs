@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use crate::utils::{
-        asset_name_from_pool,
         convert_nano_to_sec, convert_to_standard_unit, format_date_for_sql, parse_f64, parse_u64,
         read_next_page_token_from_file, write_next_page_token_to_file,
     };
@@ -30,16 +29,6 @@ mod tests {
     fn test_parse_u64() {
         assert_eq!(parse_u64("123456").unwrap(), 123456);
         assert!(parse_u64("xyz").is_err());
-    }
-
-    #[test]
-    fn test_asset_name_from_pool() {
-        assert_eq!(asset_name_from_pool("btc.eth"), Some("btc.eth".to_string()));
-        assert_eq!(
-            asset_name_from_pool("usd-btc~eth"),
-            Some("usd.btc".to_string())
-        );
-        assert_eq!(asset_name_from_pool("name"), None);
     }
 
     #[test]
