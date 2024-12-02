@@ -50,11 +50,11 @@ pub async fn start_fetch_closing_price(pg: PostgreSQL) {
 pub async fn start_fetch_chainflip_swaps(pg: PostgreSQL,base_url: &str) {
     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300));
     loop {
+        interval.tick().await;
         println!("Fetching Chainflip Swaps");
         if let Err(e) = fetch_chainflip_swaps(&base_url,&pg).await {
             println!("Error fetching chainflip swaps: {}", e);
         }
-        interval.tick().await;
     }
 }
 
