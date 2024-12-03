@@ -11,7 +11,7 @@ use actix_web::{get, web::Data, App, HttpResponse, HttpServer, Responder};
 use db::PostgreSQL;
 use futures_util::lock::Mutex;
 use lazy_static::lazy_static;
-use utils::cron::{start_cronjob, start_daily_fetch, start_fetch_chainflip_swaps, fetch_daily_closing_price, start_retry};
+use utils::cron::{start_cronjob, start_daily_fetch, start_fetch_chainflip_swaps, start_fetch_closing_price, start_retry};
 
 #[get("/")]
 async fn home() -> impl Responder {
@@ -69,7 +69,7 @@ async fn main() -> std::io::Result<()> {
     // FETCH DAILY CLOSING PRICE
     tokio::spawn({
         let pg = pg.clone();
-        async move { fetch_daily_closing_price((*pg).clone()).await }
+        async move { start_fetch_closing_price((*pg).clone()).await }
     });
 
     // FETCH CHAINFLIP SWAPS

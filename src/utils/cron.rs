@@ -36,7 +36,7 @@ pub async fn start_retry(pg: PostgreSQL,base_url: &str,pending_ids: Arc<Mutex<Ha
 }
 
 pub async fn start_fetch_closing_price(pg: PostgreSQL) {
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(86400)); // 24 hours
+    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
     loop {
         interval.tick().await;
         println!("Fetching BTC Closing Price");
