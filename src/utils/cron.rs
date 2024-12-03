@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 use chrono::{DateTime, Utc, NaiveTime};
 use futures_util::lock::Mutex;
 
-use crate::{db::PostgreSQL, fetcher::{fetch_btc_closing_price, fetch_chainflip_swaps, fetch_daily_data, fetch_latest_data, retry_pending_transactions}, SwapType, NATIVE_SWAPS_BASE_URL};
+use crate::{db::PostgreSQL, fetcher::{fetch_btc_closing_price, fetch_chainflip_swaps, fetch_daily_data, fetch_latest_data, retry_pending_transactions}, SwapType, NATIVE_SWAPS_BASE_URL, TRADE_SWAPS_BASE_URL};
 
 
 pub async fn start_cronjob(pg: PostgreSQL,base_url: &str,swap_type: SwapType) {
@@ -59,6 +59,7 @@ pub async fn start_fetch_chainflip_swaps(pg: PostgreSQL,base_url: &str) {
 }
 
 pub async fn start_daily_fetch(pg: PostgreSQL) {
+    println!("Starting Daily Fetch JOB");
     loop {
         let now: DateTime<Utc> = Utc::now();
         let target_time = NaiveTime::from_hms_opt(23, 55, 0).unwrap();
@@ -75,5 +76,9 @@ pub async fn start_daily_fetch(pg: PostgreSQL) {
         if let Err(e) = fetch_daily_data(&pg, &NATIVE_SWAPS_BASE_URL, SwapType::NATIVE, epoch_timestamp).await {
             println!("Error in daily timestamp job: {}", e);
         }
+        if let Err(e) = fetch_daily_data(&pg, &TRADE_SWAPS_BASE_URL, SwapType::TRADE, epoch_timestamp).await {
+            println!("Error in daily timestamp job: {}", e);
+        }
     }
 }
+

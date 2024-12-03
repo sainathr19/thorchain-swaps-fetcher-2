@@ -16,6 +16,8 @@ use futures_util::lock::Mutex;
 pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<(), TransactionError> {
     let mut offset = 0;
     let limit = 100;
+    let target_records = 1000;
+    let mut total_fetched = 0;
 
     'outer: loop {
         let resp = match crate::utils::chainflip::ChainFlip::fetch_chainflip_swaps(
@@ -48,13 +50,7 @@ pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<()
                 }
             };
 
-            let channel = match &node.swapChannelByDepositChannelId {
-                Some(c) => c,
-                None => {
-                    println!("Skipping swap {} - missing channel data", node.nativeId);
-                    continue;
-                }
-            };
+            let channel = &node.swapChannelByDepositChannelId;
 
             // Get date and time from timestamp
             let dt = chrono::DateTime::parse_from_rfc3339(&egress.eventByScheduledEventId.blockByBlockId.timestamp)
@@ -77,7 +73,10 @@ pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<()
                     println!("No executed swaps data for {}", node.nativeId);
                     0.0
                 },
-                in_address: channel.depositAddress.clone(),
+                in_address: match channel {
+                    Some(c) => Some(c.depositAddress.clone()),
+                    None => None
+                },
                 in_amount_usd: if let Some(swaps) = &node.executedSwaps {
                     parse_f64(&swaps.aggregates.sum.swapInputValueUsd)
                         .unwrap_or_else(|e| {
@@ -108,17 +107,18 @@ pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<()
                 },
                 out_address: node.destinationAddress.clone(),
             };
-            println!("Processing swap with ID: {}", &node.nativeId);
-            // Insert into database with detailed error logging
             match pg.insert_chainflip_swap(formatted_data.clone()).await {
-                Ok(_) => println!("Successfully inserted swap {:?} Date : {}", node.nativeId,formatted_data.date),
+                Ok(_) => println!("Successfully inserted swap {:?} Date : {}", node.nativeId, formatted_data.date),
                 Err(e) => {
-                    println!("Error Message: {}", e);
-                    break 'outer;
+                    // println!("Error inserting swap {}: {:?}", node.nativeId, e);
                 }
             }
+            
+            total_fetched += 1;
+            if total_fetched >= target_records {
+                break 'outer;
+            }
         }
-        // Check if we have more pages
         if !swaps.pageInfo.hasNextPage {
             break 'outer;
         }
@@ -126,6 +126,7 @@ pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<()
         offset += limit;
     }
 
+    println!("Total records processed: {}", total_fetched);
     Ok(())
 }
 
@@ -364,7 +365,6 @@ pub async fn retry_pending_transactions(pg: &PostgreSQL,base_url: &str,pending_i
     }
     Ok(())
 }
-
 pub async fn fetch_daily_data(pg: &PostgreSQL,base_url: &str,swap_type: SwapType,day_start_timestamp: i64) -> Result<(), TransactionError> {
     let transaction_handler = TransactionHandler;
     let pg_clone = pg.clone();

@@ -101,7 +101,7 @@ pub struct ChainflipSwap {
     pub in_asset: String,
     pub in_amount: f64,
     pub in_amount_usd: f64,
-    pub in_address: String,
+    pub in_address: Option<String>,
     pub out_asset: String,
     pub out_amount: f64,
     pub out_amount_usd: f64,
