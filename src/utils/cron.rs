@@ -1,8 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
-
+use chrono::{DateTime, Utc, NaiveTime};
 use futures_util::lock::Mutex;
 
-use crate::{db::PostgreSQL, fetcher::{fetch_btc_closing_price, fetch_chainflip_swaps, fetch_latest_data, retry_pending_transactions}, SwapType};
+use crate::{db::PostgreSQL, fetcher::{fetch_btc_closing_price, fetch_chainflip_swaps, fetch_daily_data, fetch_latest_data, retry_pending_transactions}, SwapType, NATIVE_SWAPS_BASE_URL};
 
 
 pub async fn start_cronjob(pg: PostgreSQL,base_url: &str,swap_type: SwapType) {
@@ -58,3 +58,22 @@ pub async fn start_fetch_chainflip_swaps(pg: PostgreSQL,base_url: &str) {
     }
 }
 
+pub async fn start_daily_fetch(pg: PostgreSQL) {
+    loop {
+        let now: DateTime<Utc> = Utc::now();
+        let target_time = NaiveTime::from_hms_opt(23, 55, 0).unwrap();
+        let mut next_run = now.date_naive().and_time(target_time);
+        if now.time() >= target_time {
+            next_run = (now + chrono::Duration::days(1)).date_naive().and_time(target_time);
+        }
+        let duration_until_next_run = next_run.and_utc().signed_duration_since(now);
+        tokio::time::sleep(tokio::time::Duration::from_secs(duration_until_next_run.num_seconds() as u64)).await;
+        let start_of_day = now.date_naive().and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        let epoch_timestamp = start_of_day.and_utc().timestamp();
+        
+        println!("Running daily timestamp job with epoch: {}", epoch_timestamp);
+        if let Err(e) = fetch_daily_data(&pg, &NATIVE_SWAPS_BASE_URL, SwapType::NATIVE, epoch_timestamp).await {
+            println!("Error in daily timestamp job: {}", e);
+        }
+    }
+}

@@ -15,7 +15,7 @@ use futures_util::lock::Mutex;
 
 pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<(), TransactionError> {
     let mut offset = 0;
-    let limit = 20;
+    let limit = 100;
 
     'outer: loop {
         let resp = match crate::utils::chainflip::ChainFlip::fetch_chainflip_swaps(
@@ -108,7 +108,7 @@ pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<()
                 },
                 out_address: node.destinationAddress.clone(),
             };
-
+            println!("Processing swap with ID: {}", &node.nativeId);
             // Insert into database with detailed error logging
             match pg.insert_chainflip_swap(formatted_data.clone()).await {
                 Ok(_) => println!("Successfully inserted swap {:?} Date : {}", node.nativeId,formatted_data.date),
@@ -334,6 +334,7 @@ pub async fn fetch_latest_data(pg: &PostgreSQL,base_url: &str,swap_type: SwapTyp
     Ok(())
 }
 pub async fn retry_pending_transactions(pg: &PostgreSQL,base_url: &str,pending_ids:Arc<Mutex<HashSet<String>>>,swap_type: SwapType) -> Result<(), TransactionError> {
+
     let transaction_handler = TransactionHandler;
     let pending_txn_ids = pending_ids.lock().await.clone();
     println!("Fetching Pending Transactions.. : {:?}",&pending_txn_ids);
@@ -349,6 +350,61 @@ pub async fn retry_pending_transactions(pg: &PostgreSQL,base_url: &str,pending_i
             }
         };
         let pg_clone = pg.clone();
+        let process_response =
+            transaction_handler.process_and_insert_transaction(&pg_clone, &resp.actions,swap_type.clone()).await;
+        match process_response {
+            Ok(_) => (),
+            Err(err) => {
+                return Err(TransactionError::ProcessingError(format!(
+                    "Error processing transaction: {:?}",
+                    err
+                )));
+            }
+        };
+    }
+    Ok(())
+}
+
+pub async fn fetch_daily_data(pg: &PostgreSQL,base_url: &str,swap_type: SwapType,day_start_timestamp: i64) -> Result<(), TransactionError> {
+    let transaction_handler = TransactionHandler;
+    let pg_clone = pg.clone();
+    let start_timestamp = day_start_timestamp.to_string();
+
+    let mut resp = match MidGard::fetch_actions_with_timestamp(base_url, &start_timestamp).await {
+        Ok(response) => response,
+        Err(err) => {
+            return Err(TransactionError::ApiError(format!(
+                "Error fetching actions with timestamp: {:?}",
+                err
+            )));
+        }
+    };
+    let mut actions = resp.actions.clone();
+    actions.reverse();
+    let process_response =
+        transaction_handler.process_and_insert_transaction(&pg_clone, &actions,swap_type.clone()).await;
+    match process_response {
+        Ok(_) => (),
+        Err(err) => {
+            return Err(TransactionError::ProcessingError(format!(
+                "Error processing transaction: {:?}",
+                err
+            )));
+        }
+    };
+
+    while !resp.actions.is_empty() {
+        let prev_page_token = resp.meta.prevPageToken.clone();
+        resp = match MidGard::fetch_actions_with_prevpage(base_url,prev_page_token.as_str()).await {
+            Ok(response) => response,
+            Err(err) => {
+                return Err(TransactionError::ApiError(format!(
+                    "Error fetching previous page actions: {:?}",
+                    err
+                )));
+            }
+        };
+
         let process_response =
             transaction_handler.process_and_insert_transaction(&pg_clone, &resp.actions,swap_type.clone()).await;
         match process_response {

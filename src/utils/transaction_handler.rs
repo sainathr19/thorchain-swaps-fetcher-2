@@ -157,14 +157,12 @@ impl TransactionHandler {
             SwapType::NATIVE => "native_swaps_thorchain",
             SwapType::TRADE => "swap_history_test"
         };
-        if let Err(err) = pg.insert_bulk(table_name, processed_transactions).await{
-            println!("Error Inserting Bulk : {:?}",err);
+        
+        for swap in processed_transactions{
+            if let Err(err) = pg.insert_new_record(swap.clone(),table_name).await {
+                println!("Error during insertion: {:?}", err);
+            }
         }
-        // for swap in processed_transactions{
-        //     if let Err(err) = pg.insert_new_record(swap.clone()).await {
-        //         println!("Error during insertion: {:?}", err);
-        //     }
-        // }
         Ok(())
     }
 

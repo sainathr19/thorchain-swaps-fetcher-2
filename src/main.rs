@@ -11,7 +11,7 @@ use actix_web::{get, web::Data, App, HttpResponse, HttpServer, Responder};
 use db::PostgreSQL;
 use futures_util::lock::Mutex;
 use lazy_static::lazy_static;
-use utils::cron::{start_cronjob, start_fetch_chainflip_swaps, start_fetch_closing_price, start_retry};
+use utils::cron::{start_cronjob, start_daily_fetch, start_fetch_chainflip_swaps, start_fetch_closing_price, start_retry};
 
 #[get("/")]
 async fn home() -> impl Responder {
@@ -76,6 +76,12 @@ async fn main() -> std::io::Result<()> {
     tokio::spawn({
         let pg = pg.clone();
         async move { start_fetch_chainflip_swaps((*pg).clone(),CHAINFLIP_BASE_URL).await }
+    });
+
+    // FETCH DAILY DATA
+    tokio::spawn({
+        let pg = pg.clone();
+        async move { start_daily_fetch((*pg).clone()).await }
     });
 
     let pg_data = Data::new((*pg).clone());
