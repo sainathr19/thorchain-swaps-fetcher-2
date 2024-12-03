@@ -56,6 +56,44 @@ impl PostgreSQL {
     
         Ok(())
     }
+
+    pub async fn insert_new_record(
+        &self,
+        record: SwapTransactionFromatted,
+        table_name: &str,
+    ) -> Result<(), SqlxError> {
+        let query = format!(r#"
+            INSERT INTO {} (
+                timestamp, date, time, tx_id, 
+                in_asset, in_amount, in_address, 
+                out_asset_1, out_amount_1, out_address_1, 
+                out_asset_2, out_amount_2, out_address_2
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (tx_id) DO NOTHING"#,
+            table_name
+        );
+
+        let date = format_date_for_sql(&record.date).unwrap_or_default();
+
+        sqlx::query(query.as_str().as_ref())
+            .bind(record.timestamp)
+            .bind(date)
+            .bind(record.time)
+            .bind(record.tx_id)
+            .bind(record.in_asset)
+            .bind(record.in_amount)
+            .bind(record.in_address)
+            .bind(record.out_asset_1)
+            .bind(record.out_amount_1)
+            .bind(record.out_address_1)
+            .bind(record.out_asset_2)
+            .bind(record.out_amount_2)
+            .bind(record.out_address_2)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
     
     pub async fn insert_closing_price(
         &self,
