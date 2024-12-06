@@ -1,5 +1,5 @@
 use std::{collections::HashSet, sync::Arc};
-use chrono::{DateTime, Utc, NaiveTime};
+use chrono::{DateTime, Duration, NaiveTime, Utc};
 use futures_util::lock::Mutex;
 
 use crate::{db::PostgreSQL, fetcher::{fetch_btc_closing_price, fetch_chainflip_swaps, fetch_daily_data, fetch_latest_data, retry_pending_transactions}, SwapType, NATIVE_SWAPS_BASE_URL, TRADE_SWAPS_BASE_URL};
@@ -36,10 +36,21 @@ pub async fn start_retry(pg: PostgreSQL,base_url: &str,pending_ids: Arc<Mutex<Ha
 }
 
 pub async fn start_fetch_closing_price(pg: PostgreSQL) {
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
     loop {
-        interval.tick().await;
-        println!("Fetching BTC Closing Price");
+        let now: DateTime<Utc> = Utc::now();
+        let next_run = {
+            let target_time = NaiveTime::from_hms_opt(0, 5, 0).unwrap();
+            if now.time() >= target_time {
+                (now.date_naive() + Duration::days(1)).and_time(target_time)
+            } else {
+                now.date_naive().and_time(target_time)
+            }
+        }.and_utc();
+
+        let delay = next_run - now;
+        tokio::time::sleep(delay.to_std().unwrap()).await;
+
+        println!("Fetching BTC Price");
         if let Err(e) = fetch_btc_closing_price(&pg).await {
             println!("Error fetching closing price: {}", e);
         }
@@ -57,21 +68,33 @@ pub async fn start_fetch_chainflip_swaps(pg: PostgreSQL,base_url: &str) {
         }
     }
 }
+
 pub async fn start_daily_fetch(pg: PostgreSQL) {
-    println!("ReConciling Data");
-    let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(6 * 60 * 60)); // 6 hours in seconds
     loop {
-        interval.tick().await;
         let now: DateTime<Utc> = Utc::now();
+        let next_run = {
+            let current_time = now.time();
+            let morning = NaiveTime::from_hms_opt(11, 55, 0).unwrap();
+            let evening = NaiveTime::from_hms_opt(23, 55, 0).unwrap();
+            
+            if current_time < morning {
+                now.date_naive().and_time(morning)
+            } else if current_time < evening {
+                now.date_naive().and_time(evening)
+            } else {
+                (now.date_naive() + Duration::days(1)).and_time(morning)
+            }
+        }.and_utc();
+
+        let delay = next_run - now;
+        tokio::time::sleep(delay.to_std().unwrap()).await;
+
         let start_of_period = now.date_naive().and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
         let epoch_timestamp = start_of_period.and_utc().timestamp();
         
-        println!("Running 6-hour fetch job with epoch: {}", epoch_timestamp);
+        println!("Running reconcile fetch job with epoch: {}", epoch_timestamp);
         if let Err(e) = fetch_daily_data(&pg, &NATIVE_SWAPS_BASE_URL, SwapType::NATIVE, epoch_timestamp).await {
-            println!("Error in 6-hour fetch job: {}", e);
-        }
-        if let Err(e) = fetch_daily_data(&pg, &TRADE_SWAPS_BASE_URL, SwapType::TRADE, epoch_timestamp).await {
-            println!("Error in 6-hour fetch job: {}", e);
+            println!("Error in reconcile fetch job: {}", e);
         }
     }
 }
