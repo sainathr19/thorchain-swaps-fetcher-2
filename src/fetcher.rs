@@ -16,7 +16,7 @@ use futures_util::lock::Mutex;
 pub async fn fetch_chainflip_swaps(base_url: &str, pg: &PostgreSQL) -> Result<(), TransactionError> {
     let mut offset = 0;
     let limit = 100;
-    let target_records = 1000;
+    let target_records = 500;
     let mut total_fetched = 0;
 
     'outer: loop {
