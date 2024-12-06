@@ -4,13 +4,14 @@ mod models;
 mod routes;
 mod tests;
 mod utils;
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use actix_cors::Cors;
 use actix_web::{get, web::Data, App, HttpResponse, HttpServer, Responder};
 use db::PostgreSQL;
 use futures_util::lock::Mutex;
 use lazy_static::lazy_static;
+use tokio::sync::Semaphore;
 use utils::cron::{start_cronjob, start_daily_fetch, start_fetch_chainflip_swaps, start_fetch_closing_price, start_retry};
 
 #[get("/")]
@@ -27,6 +28,11 @@ lazy_static! {
 }
 lazy_static! {
     pub static ref NATIVE_SWAPS_PENDING_IDS: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+}
+
+lazy_static::lazy_static! {
+    static ref REQUEST_SEMAPHORE: Arc<Semaphore> = Arc::new(Semaphore::new(1));
+    static ref RATE_LIMIT_DELAY: Duration = Duration::from_millis(5000);
 }
 
 #[derive(Debug, PartialEq, Clone)]

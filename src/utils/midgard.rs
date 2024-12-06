@@ -1,4 +1,4 @@
-use crate::models::actions_model::ActionsFetchResponse;
+use crate::{models::actions_model::ActionsFetchResponse, RATE_LIMIT_DELAY, REQUEST_SEMAPHORE};
 use reqwest::Client;
 use std::time::Duration;
 
@@ -14,6 +14,10 @@ impl MidGard {
         loop {
             attempts += 1;
             println!("Fetching URL (Attempt {}): {}", attempts, url);
+
+            let _permit = REQUEST_SEMAPHORE.acquire().await.unwrap();
+            tokio::time::sleep(*RATE_LIMIT_DELAY).await;
+
             let response = client.get(url).send().await;
 
             match response {
@@ -36,7 +40,6 @@ impl MidGard {
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     }
 
