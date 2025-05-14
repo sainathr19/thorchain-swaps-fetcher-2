@@ -153,6 +153,18 @@ impl PostgreSQL {
         Ok(result)
     }
 
+    pub async fn fetch_latest_timestamp_i64(
+        &self,
+        table_name: &str,
+    ) -> Result<Option<i64>, SqlxError> {
+        let query = format!("SELECT MAX(timestamp) FROM {}", table_name);
+        let result: Option<i64> = sqlx::query_scalar(&query)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        Ok(result)
+    }
+
     pub async fn fetch_all(
         &self,
         table_name: &str,

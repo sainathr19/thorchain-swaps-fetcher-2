@@ -172,8 +172,10 @@ pub async fn fetch_latest_data(
         SwapType::NATIVE => "native_swaps_thorchain",
         SwapType::TRADE => "swap_history_test",
     };
-    let latest_timestamp = match pg.fetch_latest_timestamp(table_name).await {
-        Ok(Some(timestamp)) => timestamp as i64,
+
+    // These tables use i64 (INT8) for timestamps
+    let latest_timestamp = match pg.fetch_latest_timestamp_i64(table_name).await {
+        Ok(Some(timestamp)) => timestamp,
         Ok(None) => Utc::now().timestamp() as i64,
         Err(err) => {
             return Err(TransactionError::DatabaseError(format!(
