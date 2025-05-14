@@ -1,0 +1,43 @@
+# Generated files
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Debug files
+**/*.pdb
+**/*.dSYM/
+**/*.su
+**/*.idb
+**/*.pdb
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Dependencies
+/vendor/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Tokenfiles for pagination
+next_page_token.txt 

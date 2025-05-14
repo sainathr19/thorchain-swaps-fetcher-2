@@ -9,10 +9,11 @@ impl ChainFlip {
     async fn fetch_with_retry(
         url: &str,
         client: &Client,
-        cursor: Option<&str>,
+        _cursor: Option<&str>,
         query: &str,
         variables: serde_json::Value,
-    ) -> Result<SwapResponse, Box<dyn std::error::Error>> {
+        operation_name: &str,
+    ) -> Result<SwapResponse, Box<dyn std::error::Error + Send + Sync>> {
         let mut attempts = 0;
         let max_attempts = 10;
 
@@ -22,21 +23,24 @@ impl ChainFlip {
 
             let body = json!({
                 "query": query,
-                "variables": variables
+                "variables": variables,
+                "operationName": operation_name
             });
 
-            match client.post(url)
+            match client
+                .post(url)
                 .header("Content-Type", "application/json")
                 .json(&body)
                 .send()
                 .await
             {
                 Ok(resp) => {
-                    let text = resp.text().await?;                    
+                    let text = resp.text().await?;
                     match serde_json::from_str::<SwapResponse>(&text) {
                         Ok(data) => return Ok(data),
                         Err(e) => {
                             println!("Parse error: {:?}", e);
+                            println!("Response text: {}", text);
                             if attempts >= max_attempts {
                                 return Err(Box::new(e));
                             }
@@ -59,19 +63,17 @@ impl ChainFlip {
         first: Option<i32>,
         offset: Option<i32>,
         destination_address: Option<&str>,
-    ) -> Result<SwapResponse, Box<dyn std::error::Error>> {
+    ) -> Result<SwapResponse, Box<dyn std::error::Error + Send + Sync>> {
         let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
-        
+
         let query = r#"
-            query GetAllSwaps($first: Int, $offset: Int, $destinationAddress: String) {
+            query GetAllSwaps($first: Int, $offset: Int, $destinationOrRefundAddress: String, $swapRequestNativeId: BigInt, $mainBrokerAccountSs58Id: String, $affiliateBrokerAccountSs58Id: String, $asset: ChainflipAsset, $isOnChain: Boolean, $lpRefundAddress: String, $alias: String) {
                 allSwapRequests(
-                    orderBy: NATIVE_ID_DESC
+                    orderBy: [IS_IN_PROGRESS_DESC, SWAP_REQUEST_NATIVE_ID_DESC]
                     offset: $offset
                     first: $first
-                    filter: {
-                        destinationAddress: {includesInsensitive: $destinationAddress}, 
-                        type: {in: [REGULAR, CCM, LEGACY_SWAP]}
-                    }
+                    condition: {isOnChain: $isOnChain, destinationAddress: $lpRefundAddress, refundAddress: $lpRefundAddress}
+                    filter: {or: [{destinationAddress: {includesInsensitive: $destinationOrRefundAddress}}, {refundAddress: {includesInsensitive: $destinationOrRefundAddress}}, {swapRequestNativeId: {equalTo: $swapRequestNativeId}}, {mainBrokerAccountSs58Id: {equalTo: $mainBrokerAccountSs58Id}}, {affiliateBroker1AccountSs58Id: {equalTo: $affiliateBrokerAccountSs58Id}}, {affiliateBroker2AccountSs58Id: {equalTo: $affiliateBrokerAccountSs58Id}}, {affiliateBroker3AccountSs58Id: {equalTo: $affiliateBrokerAccountSs58Id}}, {affiliateBroker4AccountSs58Id: {equalTo: $affiliateBrokerAccountSs58Id}}, {affiliateBroker5AccountSs58Id: {equalTo: $affiliateBrokerAccountSs58Id}}, {sourceAsset: {equalTo: $asset}}, {destAsset: {equalTo: $asset}}, {accountByMainBrokerAccountSs58Id: {alias: {includesInsensitive: $alias}}}], isInternal: {equalTo: false}}
                 ) {
                     pageInfo {
                         hasPreviousPage
@@ -82,43 +84,50 @@ impl ChainFlip {
                     edges {
                         node {
                             id
-                            nativeId
+                            swapRequestNativeId
                             sourceAsset
-                            depositAmount
-                            depositValueUsd
-                            destinationAsset
+                            destAsset
+                            baseAssetLeg1
+                            baseAssetLeg2
+                            ingressAmount
+                            ingressValueUsd
+                            egressAmount
+                            egressValueUsd
+                            inputAmount
+                            inputValueUsd
+                            intermediateAmount
+                            intermediateValueUsd
+                            outputAmount
+                            outputValueUsd
+                            refundAmount
+                            refundValueUsd
+                            networkFeeValueUsd
+                            totalChunks
+                            executedChunks
+                            isDca
+                            isBoosted
+                            isOnChain
+                            isInternal
+                            isCcm
+                            isVaultSwap
+                            completedBlockId
+                            completedBlockTimestamp
+                            completedBlockDate
+                            mainBrokerAccountSs58Id
+                            mainBrokerFeeValueUsd
+                            affiliateBroker1AccountSs58Id
+                            affiliateBroker1FeeValueUsd
+                            completedInSeconds
+                            startedBlockDate
+                            startedBlockId
+                            startedBlockTimestamp
                             destinationAddress
-                            type
-                            egressId
-                            egressByEgressId {
-                                amount
-                                valueUsd
-                                eventByScheduledEventId {
-                                    blockByBlockId {
-                                        timestamp
-                                    }
-                                }
-                            }
-                            executedSwaps: swapsBySwapRequestId(
-                                filter: {swapExecutedEventId: {isNull: false}, type: {notEqualTo: GAS}}
-                            ) {
-                                totalCount
-                                aggregates {
-                                    sum {
-                                        swapInputAmount
-                                        swapInputValueUsd
-                                        intermediateAmount
-                                        intermediateValueUsd
-                                        swapOutputAmount
-                                        swapOutputValueUsd
-                                    }
-                                }
-                            }
-                            swapChannelByDepositChannelId {
-                                sourceAsset
-                                depositAddress
-                                destinationAsset
-                                destinationAddress
+                            outputAndIntermediateValueUsd
+                            refundAddress
+                            status
+                            isInProgress
+                            broker: accountByMainBrokerAccountSs58Id {
+                                alias
                             }
                         }
                     }
@@ -128,49 +137,11 @@ impl ChainFlip {
         "#;
 
         let variables = json!({
-            "first": first.unwrap_or(20),
+            "first": first.unwrap_or(30),
             "offset": offset.unwrap_or(0),
-            "destinationAddress": destination_address
+            "destinationOrRefundAddress": destination_address
         });
 
-        Self::fetch_with_retry(base_url, &client, None, query, variables).await
-    }
-
-    pub async fn fetch_single_swap(
-        base_url: &str,
-        native_id: i64,
-    ) -> Result<SwapResponse, Box<dyn std::error::Error>> {
-        let client = Client::builder().timeout(Duration::from_secs(15)).build()?;
-        
-        let query = r#"
-            query GetSwapByNativeId($nativeId: BigInt!) {
-                swapRequest: swapRequestByNativeId(nativeId: $nativeId) {
-                    id
-                    nativeId
-                    sourceAsset
-                    depositAmount
-                    depositValueUsd
-                    destinationAsset
-                    destinationAddress
-                    type
-                    egress {
-                        amount
-                        valueUsd
-                    }
-                    channel {
-                        sourceAsset
-                        depositAddress
-                        destinationAsset
-                        destinationAddress
-                    }
-                }
-            }
-        "#;
-
-        let variables = json!({
-            "nativeId": native_id
-        });
-
-        Self::fetch_with_retry(base_url, &client, None, query, variables).await
+        Self::fetch_with_retry(base_url, &client, None, query, variables, "GetAllSwaps").await
     }
 }

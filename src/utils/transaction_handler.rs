@@ -2,26 +2,26 @@
 use crate::{
     db::PostgreSQL,
     models::actions_model::{SwapTransaction, SwapTransactionFromatted, TransactionData},
-    utils::{
-     convert_nano_to_sec, convert_to_standard_unit,
-        format_epoch_timestamp, parse_f64,
-    }, SwapType,
+    utils::{convert_nano_to_sec, convert_to_standard_unit, format_epoch_timestamp, parse_f64},
+    SwapType,
 };
+use lazy_static::lazy_static;
 use reqwest::Error as ReqwestError;
 use sqlx::Error as SqlxError;
-use std::fmt;
 use std::collections::HashSet;
+use std::fmt;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use lazy_static::lazy_static;
 
 use super::asset_name_from_trade_pool;
 
 lazy_static! {
-    pub static ref TRADE_SWAPS_PENDING_IDS: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    pub static ref TRADE_SWAPS_PENDING_IDS: Arc<Mutex<HashSet<String>>> =
+        Arc::new(Mutex::new(HashSet::new()));
 }
 lazy_static! {
-    pub static ref NATIVE_SWAPS_PENDING_IDS: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    pub static ref NATIVE_SWAPS_PENDING_IDS: Arc<Mutex<HashSet<String>>> =
+        Arc::new(Mutex::new(HashSet::new()));
 }
 
 #[derive(Debug)]
@@ -97,7 +97,7 @@ impl TransactionHandler {
         swap: &SwapTransaction,
     ) -> Result<SwapTransactionFromatted, TransactionError> {
         let (swap_date, swap_time) = format_epoch_timestamp(&swap.date).expect("Formatting error");
-        let epoc_timestamp = parse_f64(convert_nano_to_sec(&swap.date).as_str()).unwrap() as i64;   
+        let epoc_timestamp = parse_f64(convert_nano_to_sec(&swap.date).as_str()).unwrap() as i64;
         let tx_id = swap
             .in_data
             .get(0)
@@ -106,28 +106,49 @@ impl TransactionHandler {
         let handler = TransactionHandler;
         let in_data = swap.in_data.get(0).ok_or(TransactionError::MissingInData)?;
         let (in_asset, in_amount, in_address) = handler.parse_data(in_data).await?;
-    
+
         let mut out_data = swap.out_data.clone();
         out_data.reverse();
-    
+
         let out_data_1 = out_data.get(0).ok_or(TransactionError::MissingOutData)?;
         let (asset_1, amount_1, address_1) = handler.parse_data(out_data_1).await?;
-    
-        let (out_asset_1, out_amount_1, out_address_1, out_asset_2, out_amount_2, out_address_2) = 
+
+        let (out_asset_1, out_amount_1, out_address_1, out_asset_2, out_amount_2, out_address_2) =
             if let Some(out_data_2) = out_data.get(1) {
                 let (asset_2, amount_2, address_2) = handler.parse_data(out_data_2).await?;
-                
+
                 if asset_1 == "THOR.RUNE" {
-                    (asset_2, amount_2, address_2, Some(asset_1), Some(amount_1), Some(address_1))
+                    (
+                        asset_2,
+                        amount_2,
+                        address_2,
+                        Some(asset_1),
+                        Some(amount_1),
+                        Some(address_1),
+                    )
                 } else if asset_2 == "THOR.RUNE" {
-                    (asset_1, amount_1, address_1, Some(asset_2), Some(amount_2), Some(address_2))
+                    (
+                        asset_1,
+                        amount_1,
+                        address_1,
+                        Some(asset_2),
+                        Some(amount_2),
+                        Some(address_2),
+                    )
                 } else {
-                    (asset_1, amount_1, address_1, Some(asset_2), Some(amount_2), Some(address_2))
+                    (
+                        asset_1,
+                        amount_1,
+                        address_1,
+                        Some(asset_2),
+                        Some(amount_2),
+                        Some(address_2),
+                    )
                 }
             } else {
                 (asset_1, amount_1, address_1, None, None, None)
             };
-    
+
         Ok(SwapTransactionFromatted {
             timestamp: epoc_timestamp,
             date: swap_date,
@@ -142,7 +163,7 @@ impl TransactionHandler {
             out_asset_2,
             out_amount_2,
             out_address_2,
-            status : swap.status.clone()
+            status: swap.status.clone(),
         })
     }
 
@@ -150,16 +171,19 @@ impl TransactionHandler {
         &self,
         pg: &PostgreSQL,
         actions: &Vec<SwapTransaction>,
-        swap_type: SwapType
+        swap_type: SwapType,
     ) -> Result<(), TransactionError> {
-        let processed_transactions = self.process_transactions(actions,swap_type.clone()).await.unwrap();
+        let processed_transactions = self
+            .process_transactions(actions, swap_type.clone())
+            .await
+            .unwrap();
         let table_name = match swap_type {
             SwapType::NATIVE => "native_swaps_thorchain",
-            SwapType::TRADE => "swap_history_test"
+            SwapType::TRADE => "swap_history_test",
         };
-        
-        for swap in processed_transactions{
-            if let Err(err) = pg.insert_new_record(swap.clone(),table_name).await {
+
+        for swap in processed_transactions {
+            if let Err(err) = pg.insert_new_record(swap.clone(), table_name).await {
                 println!("Error during insertion: {:?}", err);
             }
         }
@@ -169,9 +193,9 @@ impl TransactionHandler {
     pub async fn process_transactions(
         &self,
         actions: &Vec<SwapTransaction>,
-        swap_type: SwapType
+        swap_type: SwapType,
     ) -> Result<Vec<SwapTransactionFromatted>, TransactionError> {
-        let mut result : Vec<SwapTransactionFromatted> = Vec::new();
+        let mut result: Vec<SwapTransactionFromatted> = Vec::new();
         let mut pending_count = 0;
         for swap in actions {
             let transaction_info = self.parse_transaction(&swap).await;
@@ -182,18 +206,19 @@ impl TransactionHandler {
                     continue;
                 }
             };
-            if transaction_info.status!="success"{
-                self.track_pending_transaction(transaction_info.tx_id,swap_type.clone()).await;
-                pending_count+=1;
-            }else{
+            if transaction_info.status != "success" {
+                self.track_pending_transaction(transaction_info.tx_id, swap_type.clone())
+                    .await;
+                pending_count += 1;
+            } else {
                 result.push(transaction_info);
             }
         }
-        println!("Pending Transactions in batch : {}",&pending_count);
+        println!("Pending Transactions in batch : {}", &pending_count);
         Ok(result)
     }
-    
-    pub async fn track_pending_transaction(&self,transaction_id: String,swap_type: SwapType) {
+
+    pub async fn track_pending_transaction(&self, transaction_id: String, swap_type: SwapType) {
         let mut pending_txn_ids = match swap_type {
             SwapType::NATIVE => NATIVE_SWAPS_PENDING_IDS.lock().await,
             SwapType::TRADE => TRADE_SWAPS_PENDING_IDS.lock().await,
